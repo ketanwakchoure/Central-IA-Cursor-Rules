@@ -4,6 +4,7 @@ set -euo pipefail
 LIBRARY_DEFAULT="$HOME/.cursor-rules-library"
 CONFIG_FILE=".cursor-rules.json"
 VERSION="1.0.0"
+CMD_NAME="cursor-rules"
 
 # ── Colors ────────────────────────────────────────────────────────────
 RED='\033[0;31m'
@@ -50,7 +51,7 @@ require_gh() {
 require_library() {
   if [[ ! -d "$LIBRARY_PATH" ]]; then
     err "Library not found at $LIBRARY_PATH"
-    err "Run '$(basename "$0") install' first."
+    err "Run '$CMD_NAME install' first."
     exit 1
   fi
 }
@@ -58,7 +59,7 @@ require_library() {
 require_config() {
   if [[ ! -f "$CONFIG_FILE" ]]; then
     err "No $CONFIG_FILE found in current directory."
-    err "Create one manually or run '$(basename "$0") add <rule-id>' to bootstrap it."
+    err "Create one manually or run '$CMD_NAME add <rule-id>' to bootstrap it."
     exit 1
   fi
 }
@@ -74,7 +75,7 @@ cmd_install() {
 
   if [[ -d "$LIBRARY_PATH/.git" ]]; then
     ok "Library already installed at $LIBRARY_PATH"
-    info "Run '$(basename "$0") update' to pull latest changes."
+    info "Run '$CMD_NAME update' to pull latest changes."
     return
   fi
 
@@ -379,7 +380,7 @@ _add_item() {
     local type_label
     type_label=$(echo "$type" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')
     err "$type_label not found: $item_id"
-    err "Run '$(basename "$0") list' to see available items."
+    err "Run '$CMD_NAME list' to see available items."
     exit 1
   fi
 
@@ -434,10 +435,10 @@ cmd_add() {
   local first="${1:-}"
   if [[ -z "$first" ]]; then
     err "Usage:"
-    err "  $(basename "$0") add <rule-id>              Add a rule"
-    err "  $(basename "$0") add skill <skill-id>       Add a skill"
-    err "  $(basename "$0") add agent <agent-id>       Add an agent"
-    err "  $(basename "$0") add profile <name>         Add a profile"
+    err "  $CMD_NAME add <rule-id>              Add a rule"
+    err "  $CMD_NAME add skill <skill-id>       Add a skill"
+    err "  $CMD_NAME add agent <agent-id>       Add an agent"
+    err "  $CMD_NAME add profile <name>         Add a profile"
     exit 1
   fi
 
@@ -447,13 +448,13 @@ cmd_add() {
       require_library
       local profile_name="${2:-}"
       if [[ -z "$profile_name" ]]; then
-        err "Usage: $(basename "$0") add profile <name>"
+        err "Usage: $CMD_NAME add profile <name>"
         exit 1
       fi
       local profile_file="$LIBRARY_PATH/profiles/${profile_name}.json"
       if [[ ! -f "$profile_file" ]]; then
         err "Profile '$profile_name' not found."
-        err "Run '$(basename "$0") profile' to see available profiles."
+        err "Run '$CMD_NAME profile' to see available profiles."
         exit 1
       fi
       _ensure_config
@@ -487,10 +488,10 @@ cmd_remove() {
   local first="${1:-}"
   if [[ -z "$first" ]]; then
     err "Usage:"
-    err "  $(basename "$0") remove <rule-id>              Remove a rule"
-    err "  $(basename "$0") remove skill <skill-id>       Remove a skill"
-    err "  $(basename "$0") remove agent <agent-id>       Remove an agent"
-    err "  $(basename "$0") remove profile <name>         Remove a profile"
+    err "  $CMD_NAME remove <rule-id>              Remove a rule"
+    err "  $CMD_NAME remove skill <skill-id>       Remove a skill"
+    err "  $CMD_NAME remove agent <agent-id>       Remove an agent"
+    err "  $CMD_NAME remove profile <name>         Remove a profile"
     exit 1
   fi
 
@@ -498,7 +499,7 @@ cmd_remove() {
     profile)
       local profile_name="${2:-}"
       if [[ -z "$profile_name" ]]; then
-        err "Usage: $(basename "$0") remove profile <name>"
+        err "Usage: $CMD_NAME remove profile <name>"
         exit 1
       fi
 
@@ -615,9 +616,9 @@ cmd_profile() {
     done < <(find "$LIBRARY_PATH/profiles" -name '*.json' 2>/dev/null | sort)
     echo ""
     info "Usage:"
-    info "  $(basename "$0") profile <name>           Preview rules in a profile"
-    info "  $(basename "$0") add profile <name>       Install a profile"
-    info "  $(basename "$0") remove profile <name>    Remove a specific profile"
+    info "  $CMD_NAME profile <name>           Preview rules in a profile"
+    info "  $CMD_NAME add profile <name>       Install a profile"
+    info "  $CMD_NAME remove profile <name>    Remove a specific profile"
     return
   fi
 
@@ -625,7 +626,7 @@ cmd_profile() {
   local profile_file="$LIBRARY_PATH/profiles/${profile_name}.json"
   if [[ ! -f "$profile_file" ]]; then
     err "Profile '$profile_name' not found."
-    err "Run '$(basename "$0") profile' to see available profiles."
+    err "Run '$CMD_NAME profile' to see available profiles."
     exit 1
   fi
 
@@ -646,7 +647,7 @@ cmd_profile() {
   done < <(jq -r '.rules[]?' "$profile_file")
 
   echo ""
-  info "To install: $(basename "$0") add profile ${profile_name}"
+  info "To install: $CMD_NAME add profile ${profile_name}"
 }
 
 # ── propose ───────────────────────────────────────────────────────────
@@ -746,7 +747,7 @@ cmd_propose() {
 
     if [[ ${#matches[@]} -eq 0 ]]; then
       err "'$rule_name' not found in rules, skills, or agents."
-      err "Run '$(basename "$0") list' to see available items."
+      err "Run '$CMD_NAME list' to see available items."
       exit 1
     fi
 
@@ -816,7 +817,7 @@ cmd_propose() {
 $message
 
 ---
-Auto-generated by \`cli.sh propose\`"
+Auto-generated by \`cursor-rules propose\`"
 
     _open_pr "$message" "$pr_body" "$branch"
 
@@ -827,12 +828,12 @@ Auto-generated by \`cli.sh propose\`"
 
   if [[ -z "$file" ]]; then
     err "Usage:"
-    err "  $(basename "$0") propose <file> [--category <cat>]      Add a new rule/skill/agent"
-    err "  $(basename "$0") propose <name> \"message\"               PR for edits to an existing item"
+    err "  $CMD_NAME propose <file> [--category <cat>]      Add a new rule/skill/agent"
+    err "  $CMD_NAME propose <name> \"message\"               PR for edits to an existing item"
     err ""
     err "Examples:"
-    err "  $(basename "$0") propose .cursor/rules/my-rule.mdc --category workflows"
-    err "  $(basename "$0") propose no-secret-commit \"Fix env var reference\""
+    err "  $CMD_NAME propose .cursor/rules/my-rule.mdc --category workflows"
+    err "  $CMD_NAME propose no-secret-commit \"Fix env var reference\""
     exit 1
   fi
 
@@ -950,7 +951,7 @@ Auto-generated by \`cli.sh propose\`"
 **Description:** $desc
 
 ---
-Auto-generated by \`cli.sh propose\`"
+Auto-generated by \`cursor-rules propose\`"
 
   _open_pr "$pr_title" "$pr_body" "$branch_name"
 
@@ -1064,8 +1065,7 @@ cmd_doctor() {
 
 # ── help ──────────────────────────────────────────────────────────────
 cmd_help() {
-  local script
-  script=$(basename "$0")
+  local script="$CMD_NAME"
   echo -e "${BOLD}cursor-rules${NC} v${VERSION} -- Shared Cursor Rules Library CLI"
   echo ""
   echo -e "${BOLD}USAGE${NC}"
