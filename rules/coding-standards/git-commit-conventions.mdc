@@ -1,0 +1,46 @@
+---
+description: Enforce consistent git commit message conventions across the team
+alwaysApply: true
+---
+
+# Git Commit Message Conventions
+
+Follow the Conventional Commits format for all commit messages.
+
+## Format
+
+```
+<type>(<scope>): <subject>
+
+<body>
+```
+
+## Types
+
+| Type | When to use |
+|------|-------------|
+| `feat` | A new feature or capability |
+| `fix` | A bug fix |
+| `refactor` | Code restructuring without changing behavior |
+| `test` | Adding or updating tests |
+| `docs` | Documentation changes only |
+| `chore` | Build process, dependencies, CI config |
+| `perf` | Performance improvements |
+| `style` | Formatting, whitespace, semicolons (no logic change) |
+
+## Rules
+
+- **Subject line**: imperative mood, lowercase, no period, max 72 characters
+  - Good: `fix(auth): handle expired token refresh`
+  - Bad: `Fixed the auth token issue.`
+- **Scope**: optional but encouraged; use the module/feature name (e.g., `auth`, `api`, `hooks`)
+- **Body**: explain the *why*, not the *what*. The diff shows what changed; the body explains the motivation.
+- **Breaking changes**: add `!` after type/scope and describe in the body
+  - Example: `feat(api)!: change response format to v2 schema`
+
+## What NOT to do
+
+- Do not write vague messages like `update`, `fix stuff`, `WIP`, or `misc changes`
+- Do not combine unrelated changes in a single commit
+- Do not include file lists in the commit message (the diff already shows this)
+- Do not use past tense (`added`, `fixed`) -- use imperative (`add`, `fix`)
