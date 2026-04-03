@@ -107,12 +107,7 @@ cmd_sync() {
 
   # Load rules from all active profiles (supports both "profile" string and "profiles" array)
   local profiles_json
-  profiles_json=$(jq -r '
-    if (.profiles | type) == "array" then .profiles[]
-    elif (.profiles | type) == "string" then .profiles
-    elif (.profile | type) == "string" then .profile
-    else empty
-    end' "$CONFIG_FILE" 2>/dev/null)
+  profiles_json=$(jq -r '.profiles[]?' "$CONFIG_FILE" 2>/dev/null)
 
   if [[ -n "$profiles_json" ]]; then
     while IFS= read -r pname; do
@@ -462,11 +457,10 @@ cmd_add() {
       local tmp
       tmp=$(mktemp)
       jq --arg p "$profile_name" '
-        (if .profile then [.profile] else (.profiles // []) end) as $existing
+        (.profiles // []) as $existing
         | if ($existing | index($p)) then .
-          else . + {profiles: ($existing + [$p])}
+          else .profiles = ($existing + [$p])
           end
-        | del(.profile)
       ' "$CONFIG_FILE" > "$tmp" && mv "$tmp" "$CONFIG_FILE"
       ok "Added profile '${profile_name}' to $CONFIG_FILE"
       local pdesc
@@ -506,10 +500,8 @@ cmd_remove() {
 
       local is_active
       is_active=$(jq -r --arg p "$profile_name" '
-        if .profiles then (.profiles | index($p) // empty)
-        elif .profile == $p then "yes"
-        else empty
-        end' "$CONFIG_FILE" 2>/dev/null || true)
+        .profiles // [] | index($p) // empty
+        ' "$CONFIG_FILE" 2>/dev/null || true)
 
       if [[ -z "$is_active" ]]; then
         warn "Profile '$profile_name' is not active in $CONFIG_FILE"
@@ -552,9 +544,8 @@ cmd_remove() {
       local tmp
       tmp=$(mktemp)
       jq --arg p "$profile_name" '
-        if .profiles then .profiles = [.profiles[] | select(. != $p)]
-        else del(.profile)
-        end' "$CONFIG_FILE" > "$tmp" && mv "$tmp" "$CONFIG_FILE"
+        .profiles = [.profiles[]? | select(. != $p)]
+        ' "$CONFIG_FILE" > "$tmp" && mv "$tmp" "$CONFIG_FILE"
       ok "Removed profile '${profile_name}' from $CONFIG_FILE"
 
       # Remove non-overlapping symlinks
