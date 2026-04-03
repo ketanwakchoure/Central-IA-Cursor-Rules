@@ -1,6 +1,6 @@
 {
   "library": "~/.cursor-rules-library",
-  "profile": "default",
+  "profiles": ["default"],
   "rules": [
     "workflows/pr-review",
     "safety/no-placeholder"
