@@ -313,7 +313,7 @@ cmd_list() {
   done
 }
 
-# ── helpers for config bootstrap ──────────────────────────────────────
+# ── helpers ───────────────────────────────────────────────────────────
 _ensure_config() {
   if [[ ! -f "$CONFIG_FILE" ]]; then
     info "Creating $CONFIG_FILE ..."
@@ -328,91 +328,128 @@ EOF
   fi
 }
 
-# ── add ───────────────────────────────────────────────────────────────
-cmd_add() {
+_add_item() {
+  local type="$1" item_id="$2"
   require_jq
   require_library
 
-  local first="${1:-}"
-  if [[ -z "$first" ]]; then
-    err "Usage:"
-    err "  $(basename "$0") add <rule-id>          Add a single rule"
-    err "  $(basename "$0") add profile <name>     Add a profile and sync its rules"
-    exit 1
-  fi
+  # Resolve source file and symlink destination
+  local src="" dest=""
+  case "$type" in
+    rule)
+      src="$LIBRARY_PATH/rules/${item_id}.mdc"
+      dest=".cursor/rules/$(basename "$item_id").mdc"
+      ;;
+    skill)
+      src="$LIBRARY_PATH/skills/${item_id}/SKILL.md"
+      dest=".cursor/skills/$(basename "$item_id")/SKILL.md"
+      ;;
+    agent)
+      src="$LIBRARY_PATH/agents/${item_id}.md"
+      dest=".cursor/agents/$(basename "$item_id").md"
+      ;;
+  esac
 
-  # ── add profile <name> ──
-  if [[ "$first" == "profile" ]]; then
-    local profile_name="${2:-}"
-    if [[ -z "$profile_name" ]]; then
-      err "Usage: $(basename "$0") add profile <name>"
-      err "Run '$(basename "$0") profile' to see available profiles."
-      exit 1
-    fi
-
-    local profile_file="$LIBRARY_PATH/profiles/${profile_name}.json"
-    if [[ ! -f "$profile_file" ]]; then
-      err "Profile '$profile_name' not found."
-      err "Run '$(basename "$0") profile' to see available profiles."
-      exit 1
-    fi
-
-    _ensure_config
-
-    # Migrate "profile" (string) to "profiles" (array) if needed, then append
-    local tmp
-    tmp=$(mktemp)
-    jq --arg p "$profile_name" '
-      # Migrate legacy "profile" string to "profiles" array
-      (if .profile then [.profile] else (.profiles // []) end) as $existing
-      | if ($existing | index($p)) then .
-        else . + {profiles: ($existing + [$p])}
-        end
-      | del(.profile)
-    ' "$CONFIG_FILE" > "$tmp" && mv "$tmp" "$CONFIG_FILE"
-
-    # Check if it was already present
-    local already
-    already=$(jq -r --arg p "$profile_name" '.profiles // [] | index($p) // empty' "$CONFIG_FILE" 2>/dev/null || true)
-
-    ok "Added profile '${profile_name}' to $CONFIG_FILE"
-
-    local pdesc
-    pdesc=$(jq -r '.description // ""' "$profile_file")
-    [[ -n "$pdesc" ]] && info "$pdesc"
-
-    echo ""
-    cmd_sync
-    return
-  fi
-
-  # ── add <rule-id> ──
-  local rule_id="$first"
-  local src="$LIBRARY_PATH/rules/${rule_id}.mdc"
   if [[ ! -f "$src" ]]; then
-    err "Rule not found: $rule_id"
-    err "Run '$(basename "$0") list' to see available rules."
+    err "${type^} not found: $item_id"
+    err "Run '$(basename "$0") list' to see available items."
     exit 1
   fi
 
   _ensure_config
 
+  local json_key="${type}s"
   local already
-  already=$(jq -r --arg id "$rule_id" '.rules[] | select(. == $id)' "$CONFIG_FILE" 2>/dev/null || true)
+  already=$(jq -r --arg id "$item_id" --arg k "$json_key" '.[$k][]? | select(. == $id)' "$CONFIG_FILE" 2>/dev/null || true)
   if [[ -n "$already" ]]; then
-    warn "Rule '$rule_id' is already in $CONFIG_FILE"
+    warn "${type^} '$item_id' is already in $CONFIG_FILE"
   else
     local tmp
     tmp=$(mktemp)
-    jq --arg id "$rule_id" '.rules += [$id]' "$CONFIG_FILE" > "$tmp" && mv "$tmp" "$CONFIG_FILE"
-    ok "Added '$rule_id' to $CONFIG_FILE"
+    jq --arg id "$item_id" --arg k "$json_key" '.[$k] += [$id]' "$CONFIG_FILE" > "$tmp" && mv "$tmp" "$CONFIG_FILE"
+    ok "Added $type '$item_id' to $CONFIG_FILE"
   fi
 
-  mkdir -p .cursor/rules
-  local dest=".cursor/rules/$(basename "$rule_id").mdc"
+  mkdir -p "$(dirname "$dest")"
   [[ -L "$dest" ]] && rm "$dest"
   ln -s "$src" "$dest"
-  ok "Symlinked: $dest -> $src"
+  ok "Symlinked: $dest"
+}
+
+_remove_item() {
+  local type="$1" item_id="$2"
+  require_jq
+  require_config
+
+  local json_key="${type}s"
+  local tmp
+  tmp=$(mktemp)
+  jq --arg id "$item_id" --arg k "$json_key" '.[$k] = [.[$k][] | select(. != $id)]' "$CONFIG_FILE" > "$tmp" && mv "$tmp" "$CONFIG_FILE"
+  ok "Removed $type '$item_id' from $CONFIG_FILE"
+
+  local dest=""
+  case "$type" in
+    rule)  dest=".cursor/rules/$(basename "$item_id").mdc" ;;
+    skill) dest=".cursor/skills/$(basename "$item_id")/SKILL.md" ;;
+    agent) dest=".cursor/agents/$(basename "$item_id").md" ;;
+  esac
+
+  if [[ -L "$dest" ]]; then
+    rm "$dest"
+    ok "Removed symlink: $dest"
+  elif [[ -f "$dest" ]]; then
+    warn "$dest exists but is not a symlink -- leaving it in place."
+  fi
+}
+
+# ── add ───────────────────────────────────────────────────────────────
+cmd_add() {
+  local first="${1:-}"
+  if [[ -z "$first" ]]; then
+    err "Usage:"
+    err "  $(basename "$0") add <rule-id>              Add a rule"
+    err "  $(basename "$0") add skill <skill-id>       Add a skill"
+    err "  $(basename "$0") add agent <agent-id>       Add an agent"
+    err "  $(basename "$0") add profile <name>         Add a profile"
+    exit 1
+  fi
+
+  case "$first" in
+    profile)
+      require_jq
+      require_library
+      local profile_name="${2:-}"
+      if [[ -z "$profile_name" ]]; then
+        err "Usage: $(basename "$0") add profile <name>"
+        exit 1
+      fi
+      local profile_file="$LIBRARY_PATH/profiles/${profile_name}.json"
+      if [[ ! -f "$profile_file" ]]; then
+        err "Profile '$profile_name' not found."
+        err "Run '$(basename "$0") profile' to see available profiles."
+        exit 1
+      fi
+      _ensure_config
+      local tmp
+      tmp=$(mktemp)
+      jq --arg p "$profile_name" '
+        (if .profile then [.profile] else (.profiles // []) end) as $existing
+        | if ($existing | index($p)) then .
+          else . + {profiles: ($existing + [$p])}
+          end
+        | del(.profile)
+      ' "$CONFIG_FILE" > "$tmp" && mv "$tmp" "$CONFIG_FILE"
+      ok "Added profile '${profile_name}' to $CONFIG_FILE"
+      local pdesc
+      pdesc=$(jq -r '.description // ""' "$profile_file")
+      [[ -n "$pdesc" ]] && info "$pdesc"
+      echo ""
+      cmd_sync
+      ;;
+    skill) _add_item "skill" "${2:-}" ;;
+    agent) _add_item "agent" "${2:-}" ;;
+    *)     _add_item "rule" "$first" ;;
+  esac
 }
 
 # ── remove ────────────────────────────────────────────────────────────
@@ -423,121 +460,109 @@ cmd_remove() {
   local first="${1:-}"
   if [[ -z "$first" ]]; then
     err "Usage:"
-    err "  $(basename "$0") remove <rule-id>       Remove a single rule"
-    err "  $(basename "$0") remove profile         Remove the active profile"
+    err "  $(basename "$0") remove <rule-id>              Remove a rule"
+    err "  $(basename "$0") remove skill <skill-id>       Remove a skill"
+    err "  $(basename "$0") remove agent <agent-id>       Remove an agent"
+    err "  $(basename "$0") remove profile <name>         Remove a profile"
     exit 1
   fi
 
-  # ── remove profile <name> ──
-  if [[ "$first" == "profile" ]]; then
-    local profile_name="${2:-}"
-    if [[ -z "$profile_name" ]]; then
-      err "Usage: $(basename "$0") remove profile <name>"
-      exit 1
-    fi
+  case "$first" in
+    profile)
+      local profile_name="${2:-}"
+      if [[ -z "$profile_name" ]]; then
+        err "Usage: $(basename "$0") remove profile <name>"
+        exit 1
+      fi
 
-    # Check the profile is actually active (support both "profile" and "profiles")
-    local is_active
-    is_active=$(jq -r --arg p "$profile_name" '
-      if .profiles then (.profiles | index($p) // empty)
-      elif .profile == $p then "yes"
-      else empty
-      end' "$CONFIG_FILE" 2>/dev/null || true)
+      local is_active
+      is_active=$(jq -r --arg p "$profile_name" '
+        if .profiles then (.profiles | index($p) // empty)
+        elif .profile == $p then "yes"
+        else empty
+        end' "$CONFIG_FILE" 2>/dev/null || true)
 
-    if [[ -z "$is_active" ]]; then
-      warn "Profile '$profile_name' is not active in $CONFIG_FILE"
-      return
-    fi
+      if [[ -z "$is_active" ]]; then
+        warn "Profile '$profile_name' is not active in $CONFIG_FILE"
+        return
+      fi
 
-    local profile_file="$LIBRARY_PATH/profiles/${profile_name}.json"
+      local profile_file="$LIBRARY_PATH/profiles/${profile_name}.json"
 
-    # Collect rules from the profile being removed
-    local removing_rules=""
-    if [[ -f "$profile_file" ]]; then
-      removing_rules=$(jq -r '.rules[]?' "$profile_file" 2>/dev/null || true)
-    fi
+      # Collect ALL items from the profile being removed
+      local removing_rules="" removing_skills="" removing_agents=""
+      if [[ -f "$profile_file" ]]; then
+        removing_rules=$(jq -r '.rules[]?' "$profile_file" 2>/dev/null || true)
+        removing_skills=$(jq -r '.skills[]?' "$profile_file" 2>/dev/null || true)
+        removing_agents=$(jq -r '.agents[]?' "$profile_file" 2>/dev/null || true)
+      fi
 
-    # Collect rules that should be KEPT (from other active profiles + explicit rules)
-    local keep_rules=""
+      # Collect items to KEEP (from other profiles + explicit lists)
+      local keep_rules="" keep_skills="" keep_agents=""
+      local other_profiles
+      other_profiles=$(jq -r --arg p "$profile_name" '
+        if .profiles then [.profiles[] | select(. != $p)][]
+        else empty
+        end' "$CONFIG_FILE" 2>/dev/null || true)
 
-    # Rules from other active profiles
-    local other_profiles
-    other_profiles=$(jq -r --arg p "$profile_name" '
-      if .profiles then [.profiles[] | select(. != $p)][]
-      else empty
-      end' "$CONFIG_FILE" 2>/dev/null || true)
+      if [[ -n "$other_profiles" ]]; then
+        while IFS= read -r op; do
+          [[ -z "$op" ]] && continue
+          local opfile="$LIBRARY_PATH/profiles/${op}.json"
+          [[ ! -f "$opfile" ]] && continue
+          keep_rules="${keep_rules}$(jq -r '.rules[]?' "$opfile" 2>/dev/null)"$'\n'
+          keep_skills="${keep_skills}$(jq -r '.skills[]?' "$opfile" 2>/dev/null)"$'\n'
+          keep_agents="${keep_agents}$(jq -r '.agents[]?' "$opfile" 2>/dev/null)"$'\n'
+        done <<< "$other_profiles"
+      fi
+      keep_rules="${keep_rules}$(jq -r '.rules[]?' "$CONFIG_FILE" 2>/dev/null)"$'\n'
+      keep_skills="${keep_skills}$(jq -r '.skills[]?' "$CONFIG_FILE" 2>/dev/null)"$'\n'
+      keep_agents="${keep_agents}$(jq -r '.agents[]?' "$CONFIG_FILE" 2>/dev/null)"$'\n'
 
-    if [[ -n "$other_profiles" ]]; then
-      while IFS= read -r op; do
-        [[ -z "$op" ]] && continue
-        local opfile="$LIBRARY_PATH/profiles/${op}.json"
-        if [[ -f "$opfile" ]]; then
-          local oprules
-          oprules=$(jq -r '.rules[]?' "$opfile" 2>/dev/null || true)
-          if [[ -n "$oprules" ]]; then
-            keep_rules="${keep_rules}${oprules}"$'\n'
+      # Remove profile from config
+      local tmp
+      tmp=$(mktemp)
+      jq --arg p "$profile_name" '
+        if .profiles then .profiles = [.profiles[] | select(. != $p)]
+        else del(.profile)
+        end' "$CONFIG_FILE" > "$tmp" && mv "$tmp" "$CONFIG_FILE"
+      ok "Removed profile '${profile_name}' from $CONFIG_FILE"
+
+      # Remove non-overlapping symlinks
+      local removed=0
+      _remove_profile_items() {
+        local items="$1" keep="$2" type="$3"
+        [[ -z "$items" ]] && return
+        while IFS= read -r item_id; do
+          [[ -z "$item_id" ]] && continue
+          if echo "$keep" | grep -qx "$item_id" 2>/dev/null; then
+            info "Keeping $type '$item_id' (used by another profile or explicit list)"
+            continue
           fi
-        fi
-      done <<< "$other_profiles"
-    fi
+          local dest=""
+          case "$type" in
+            rule)  dest=".cursor/rules/$(basename "$item_id").mdc" ;;
+            skill) dest=".cursor/skills/$(basename "$item_id")/SKILL.md" ;;
+            agent) dest=".cursor/agents/$(basename "$item_id").md" ;;
+          esac
+          if [[ -L "$dest" ]]; then
+            rm "$dest"
+            ok "Removed symlink: $dest"
+            ((removed++))
+          fi
+        done <<< "$items"
+      }
+      _remove_profile_items "$removing_rules" "$keep_rules" "rule"
+      _remove_profile_items "$removing_skills" "$keep_skills" "skill"
+      _remove_profile_items "$removing_agents" "$keep_agents" "agent"
 
-    # Explicit rules from config
-    local explicit
-    explicit=$(jq -r '.rules[]?' "$CONFIG_FILE" 2>/dev/null || true)
-    if [[ -n "$explicit" ]]; then
-      keep_rules="${keep_rules}${explicit}"$'\n'
-    fi
-
-    # Remove the profile from config
-    local tmp
-    tmp=$(mktemp)
-    jq --arg p "$profile_name" '
-      if .profiles then .profiles = [.profiles[] | select(. != $p)]
-      else del(.profile)
-      end' "$CONFIG_FILE" > "$tmp" && mv "$tmp" "$CONFIG_FILE"
-    ok "Removed profile '${profile_name}' from $CONFIG_FILE"
-
-    # Remove symlinks for rules unique to this profile
-    local removed=0
-    if [[ -n "$removing_rules" ]]; then
-      while IFS= read -r rule_id; do
-        [[ -z "$rule_id" ]] && continue
-
-        # Skip if rule exists in keep_rules (other profiles or explicit)
-        if echo "$keep_rules" | grep -qx "$rule_id" 2>/dev/null; then
-          info "Keeping '$rule_id' (used by another profile or explicit rules)"
-          continue
-        fi
-
-        local dest=".cursor/rules/$(basename "$rule_id").mdc"
-        if [[ -L "$dest" ]]; then
-          rm "$dest"
-          ok "Removed symlink: $dest"
-          ((removed++))
-        fi
-      done <<< "$removing_rules"
-    fi
-
-    echo ""
-    ok "Profile '${profile_name}' removed. $removed symlink(s) cleaned up."
-    return
-  fi
-
-  # ── remove <rule-id> ──
-  local rule_id="$first"
-
-  local tmp
-  tmp=$(mktemp)
-  jq --arg id "$rule_id" '.rules = [.rules[] | select(. != $id)]' "$CONFIG_FILE" > "$tmp" && mv "$tmp" "$CONFIG_FILE"
-  ok "Removed '$rule_id' from $CONFIG_FILE"
-
-  local dest=".cursor/rules/$(basename "$rule_id").mdc"
-  if [[ -L "$dest" ]]; then
-    rm "$dest"
-    ok "Removed symlink: $dest"
-  elif [[ -f "$dest" ]]; then
-    warn "$dest exists but is not a symlink -- leaving it in place."
-  fi
+      echo ""
+      ok "Profile '${profile_name}' removed. $removed symlink(s) cleaned up."
+      ;;
+    skill) _remove_item "skill" "${2:-}" ;;
+    agent) _remove_item "agent" "${2:-}" ;;
+    *)     _remove_item "rule" "$first" ;;
+  esac
 }
 
 # ── profile ───────────────────────────────────────────────────────────
@@ -626,12 +651,15 @@ cmd_propose() {
     esac
   done
 
-  # ── Mode: edit an existing rule by name ──
-  # Usage: propose <rule_name> "message"
-  # Accepts full ID (safety/no-secret-commit) or just the name (no-secret-commit)
+  # ── Mode: edit an existing item by name ──
+  # Usage: propose <name> "message"
+  # Searches rules, skills, and agents by full ID or short name
   if [[ -z "$file" && -n "$rule_name" ]]; then
     local matches=()
     local match_ids=()
+    local match_types=()
+
+    # Search rules
     while IFS= read -r candidate; do
       [[ -z "$candidate" ]] && continue
       local rel="${candidate#$LIBRARY_PATH/rules/}"
@@ -639,34 +667,63 @@ cmd_propose() {
       if [[ "$id" == "$rule_name" || "$(basename "$id")" == "$rule_name" ]]; then
         matches+=("$candidate")
         match_ids+=("$id")
+        match_types+=("rule")
       fi
     done < <(find "$LIBRARY_PATH/rules" -name '*.mdc' 2>/dev/null | sort)
 
+    # Search skills
+    while IFS= read -r candidate; do
+      [[ -z "$candidate" ]] && continue
+      local skill_dir
+      skill_dir=$(dirname "$candidate")
+      local id="${skill_dir#$LIBRARY_PATH/skills/}"
+      if [[ "$id" == "$rule_name" || "$(basename "$id")" == "$rule_name" ]]; then
+        matches+=("$candidate")
+        match_ids+=("$id")
+        match_types+=("skill")
+      fi
+    done < <(find "$LIBRARY_PATH/skills" -name 'SKILL.md' 2>/dev/null | sort)
+
+    # Search agents
+    while IFS= read -r candidate; do
+      [[ -z "$candidate" ]] && continue
+      local rel="${candidate#$LIBRARY_PATH/agents/}"
+      local id="${rel%.md}"
+      if [[ "$id" == "$rule_name" || "$(basename "$id")" == "$rule_name" ]]; then
+        matches+=("$candidate")
+        match_ids+=("$id")
+        match_types+=("agent")
+      fi
+    done < <(find "$LIBRARY_PATH/agents" -name '*.md' ! -name '.gitkeep' 2>/dev/null | sort)
+
     if [[ ${#matches[@]} -eq 0 ]]; then
-      err "Rule '$rule_name' not found in the library."
-      err "Run '$(basename "$0") list' to see available rules."
+      err "'$rule_name' not found in rules, skills, or agents."
+      err "Run '$(basename "$0") list' to see available items."
       exit 1
     fi
 
     local rule_file=""
+    local item_type=""
     if [[ ${#matches[@]} -gt 1 ]]; then
-      warn "Multiple rules match '$rule_name':"
+      warn "Multiple items match '$rule_name':"
       local idx=1
-      for mid in "${match_ids[@]}"; do
-        echo "  $idx) $mid"
+      for i in "${!match_ids[@]}"; do
+        echo "  $idx) [${match_types[$i]}] ${match_ids[$i]}"
         ((idx++))
       done
       echo ""
       read -rp "Select [1-${#matches[@]}]: " choice
       rule_file="${matches[$((choice-1))]}"
       rule_name="${match_ids[$((choice-1))]}"
+      item_type="${match_types[$((choice-1))]}"
     else
       rule_file="${matches[0]}"
       rule_name="${match_ids[0]}"
+      item_type="${match_types[0]}"
     fi
 
     local rel_path="${rule_file#$LIBRARY_PATH/}"
-    info "Resolved rule: $rule_name"
+    info "Resolved ${item_type}: $rule_name"
 
     # Check if this specific rule has changes
     local rule_changed
@@ -722,12 +779,12 @@ Auto-generated by \`cli.sh propose\`"
 
   if [[ -z "$file" ]]; then
     err "Usage:"
-    err "  $(basename "$0") propose <file.mdc> [--category <cat>]          Add a new rule"
-    err "  $(basename "$0") propose <rule-name> \"message\"                  PR for edits to a rule"
+    err "  $(basename "$0") propose <file> [--category <cat>]      Add a new rule/skill/agent"
+    err "  $(basename "$0") propose <name> \"message\"               PR for edits to an existing item"
     err ""
     err "Examples:"
     err "  $(basename "$0") propose .cursor/rules/my-rule.mdc --category workflows"
-    err "  $(basename "$0") propose safety/no-secret-commit \"Fix env var reference\""
+    err "  $(basename "$0") propose no-secret-commit \"Fix env var reference\""
     exit 1
   fi
 
@@ -927,10 +984,14 @@ cmd_help() {
   echo "  sync [-f]                   Symlink rules from library into current workspace"
   echo "  update [-f]                 Pull latest library changes and re-sync"
   echo "  list [--category <cat>]     List all available rules, skills, and agents"
-  echo "  add <rule-id>               Add a single rule to .cursor-rules.json and symlink it"
-  echo "  add profile <name>          Install a profile (updates JSON + syncs all rules)"
-  echo "  remove <rule-id>            Remove a single rule and its symlink"
-  echo "  remove profile <name>       Remove a profile; only deletes non-overlapping rules"
+  echo "  add <rule-id>               Add a rule"
+  echo "  add skill <skill-id>        Add a skill"
+  echo "  add agent <agent-id>        Add an agent"
+  echo "  add profile <name>          Install a profile (syncs all its items)"
+  echo "  remove <rule-id>            Remove a rule"
+  echo "  remove skill <skill-id>     Remove a skill"
+  echo "  remove agent <agent-id>     Remove an agent"
+  echo "  remove profile <name>       Remove a profile; keeps items used elsewhere"
   echo "  profile                     List available profiles"
   echo "  profile <name>              Preview rules in a profile"
   echo "  propose <file> [--category] Propose a new rule to the library via PR"
