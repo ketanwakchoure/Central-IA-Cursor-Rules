@@ -628,26 +628,45 @@ cmd_propose() {
 
   # ── Mode: edit an existing rule by name ──
   # Usage: propose <rule_name> "message"
+  # Accepts full ID (safety/no-secret-commit) or just the name (no-secret-commit)
   if [[ -z "$file" && -n "$rule_name" ]]; then
-    # Find the rule file in the library
-    local rule_file=""
+    local matches=()
+    local match_ids=()
     while IFS= read -r candidate; do
       [[ -z "$candidate" ]] && continue
       local rel="${candidate#$LIBRARY_PATH/rules/}"
       local id="${rel%.mdc}"
       if [[ "$id" == "$rule_name" || "$(basename "$id")" == "$rule_name" ]]; then
-        rule_file="$candidate"
-        break
+        matches+=("$candidate")
+        match_ids+=("$id")
       fi
-    done < <(find "$LIBRARY_PATH/rules" -name '*.mdc' 2>/dev/null)
+    done < <(find "$LIBRARY_PATH/rules" -name '*.mdc' 2>/dev/null | sort)
 
-    if [[ -z "$rule_file" ]]; then
+    if [[ ${#matches[@]} -eq 0 ]]; then
       err "Rule '$rule_name' not found in the library."
       err "Run '$(basename "$0") list' to see available rules."
       exit 1
     fi
 
+    local rule_file=""
+    if [[ ${#matches[@]} -gt 1 ]]; then
+      warn "Multiple rules match '$rule_name':"
+      local idx=1
+      for mid in "${match_ids[@]}"; do
+        echo "  $idx) $mid"
+        ((idx++))
+      done
+      echo ""
+      read -rp "Select [1-${#matches[@]}]: " choice
+      rule_file="${matches[$((choice-1))]}"
+      rule_name="${match_ids[$((choice-1))]}"
+    else
+      rule_file="${matches[0]}"
+      rule_name="${match_ids[0]}"
+    fi
+
     local rel_path="${rule_file#$LIBRARY_PATH/}"
+    info "Resolved rule: $rule_name"
 
     # Check if this specific rule has changes
     local rule_changed
