@@ -19,6 +19,16 @@ ok()    { echo -e "${GREEN}✔${NC}  $*"; }
 warn()  { echo -e "${YELLOW}⚠${NC}  $*"; }
 err()   { echo -e "${RED}✖${NC}  $*" >&2; }
 
+confirm() {
+  local prompt="${1:-Continue?}"
+  echo ""
+  read -rp "$(echo -e "${YELLOW}⚠${NC}  ${prompt} [y/N] ")" answer
+  if [[ "$answer" != "y" && "$answer" != "Y" ]]; then
+    info "Aborted."
+    exit 0
+  fi
+}
+
 get_library_path() {
   if [[ -f "$CONFIG_FILE" ]] && command -v jq &>/dev/null; then
     local lib
@@ -155,6 +165,21 @@ cmd_sync() {
     while IFS= read -r a; do [[ -n "$a" ]] && agents_list+=("$a"); done <<< "$_da"
   fi
 
+  local total_items=$(( ${#rules_list[@]} + ${#skills_list[@]} + ${#agents_list[@]} ))
+  if [[ $total_items -eq 0 ]]; then
+    ok "Sync complete. 0 item(s) to link."
+    return
+  fi
+
+  echo -e "${BOLD}Will sync ${total_items} item(s):${NC}"
+  for r in "${rules_list[@]+"${rules_list[@]}"}"; do [[ -n "$r" ]] && echo "  rule: $r"; done
+  for s in "${skills_list[@]+"${skills_list[@]}"}"; do [[ -n "$s" ]] && echo "  skill: $s"; done
+  for a in "${agents_list[@]+"${agents_list[@]}"}"; do [[ -n "$a" ]] && echo "  agent: $a"; done
+  if [[ "$FORCE_SYNC" == "true" ]]; then
+    warn "Force mode: local files will be replaced."
+  fi
+  confirm "Proceed with sync?"
+
   local linked=0
 
   # Sync rules
@@ -257,6 +282,8 @@ cmd_update() {
       *) shift ;;
     esac
   done
+
+  confirm "Pull latest rules from GitHub and re-sync?"
 
   info "Pulling latest changes ..."
   git -C "$LIBRARY_PATH" pull --ff-only
@@ -405,6 +432,8 @@ _remove_item() {
   require_jq
   require_config
 
+  confirm "Remove $type '$item_id' from this workspace?"
+
   local json_key="${type}s"
   local tmp
   tmp=$(mktemp)
@@ -539,6 +568,26 @@ cmd_remove() {
       keep_rules="${keep_rules}$(jq -r '.rules[]?' "$CONFIG_FILE" 2>/dev/null)"$'\n'
       keep_skills="${keep_skills}$(jq -r '.skills[]?' "$CONFIG_FILE" 2>/dev/null)"$'\n'
       keep_agents="${keep_agents}$(jq -r '.agents[]?' "$CONFIG_FILE" 2>/dev/null)"$'\n'
+
+      # Preview what will be removed vs kept
+      echo -e "${BOLD}Removing profile '${profile_name}':${NC}"
+      _preview_profile_removal() {
+        local items="$1" keep="$2" type="$3"
+        [[ -z "$items" ]] && return
+        while IFS= read -r item_id; do
+          [[ -z "$item_id" ]] && continue
+          if echo "$keep" | grep -qx "$item_id" 2>/dev/null; then
+            echo -e "  ${GREEN}keep${NC}  $type: $item_id (used elsewhere)"
+          else
+            echo -e "  ${RED}remove${NC}  $type: $item_id"
+          fi
+        done <<< "$items"
+      }
+      _preview_profile_removal "$removing_rules" "$keep_rules" "rule"
+      _preview_profile_removal "$removing_skills" "$keep_skills" "skill"
+      _preview_profile_removal "$removing_agents" "$keep_agents" "agent"
+
+      confirm "Remove profile '${profile_name}'?"
 
       # Remove profile from config
       local tmp
