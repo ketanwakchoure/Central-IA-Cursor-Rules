@@ -353,6 +353,65 @@ cmd_remove() {
   fi
 }
 
+# ── profile ───────────────────────────────────────────────────────────
+cmd_profile() {
+  require_jq
+  require_library
+
+  local profile_name="${1:-}"
+
+  if [[ -z "$profile_name" ]]; then
+    echo -e "${BOLD}Available profiles:${NC}"
+    echo ""
+    while IFS= read -r pfile; do
+      [[ -z "$pfile" ]] && continue
+      local pname
+      pname=$(basename "$pfile" .json)
+      local pdesc
+      pdesc=$(jq -r '.description // "(no description)"' "$pfile")
+      local pcount
+      pcount=$(jq -r '.rules | length' "$pfile")
+      echo -e "  ${GREEN}${pname}${NC}  --  ${pdesc} (${pcount} rules)"
+    done < <(find "$LIBRARY_PATH/profiles" -name '*.json' 2>/dev/null | sort)
+    echo ""
+    info "Usage: $(basename "$0") profile <name>"
+    return
+  fi
+
+  local profile_file="$LIBRARY_PATH/profiles/${profile_name}.json"
+  if [[ ! -f "$profile_file" ]]; then
+    err "Profile '$profile_name' not found."
+    err "Run '$(basename "$0") profile' to see available profiles."
+    exit 1
+  fi
+
+  if [[ ! -f "$CONFIG_FILE" ]]; then
+    info "Creating $CONFIG_FILE ..."
+    cat > "$CONFIG_FILE" <<EOF
+{
+  "library": "~/.cursor-rules-library",
+  "profile": "${profile_name}",
+  "rules": [],
+  "skills": [],
+  "agents": []
+}
+EOF
+  else
+    local tmp
+    tmp=$(mktemp)
+    jq --arg p "$profile_name" '.profile = $p' "$CONFIG_FILE" > "$tmp" && mv "$tmp" "$CONFIG_FILE"
+  fi
+
+  ok "Set profile to '${profile_name}' in $CONFIG_FILE"
+
+  local pdesc
+  pdesc=$(jq -r '.description // ""' "$profile_file")
+  [[ -n "$pdesc" ]] && info "$pdesc"
+
+  echo ""
+  cmd_sync
+}
+
 # ── propose ───────────────────────────────────────────────────────────
 cmd_propose() {
   require_jq
@@ -563,6 +622,7 @@ cmd_help() {
   echo "  list [--category <cat>]     List all available rules, skills, and agents"
   echo "  add <rule-id>               Add a rule to .cursor-rules.json and symlink it"
   echo "  remove <rule-id>            Remove a rule from .cursor-rules.json and its symlink"
+  echo "  profile [name]              Set a profile (updates .cursor-rules.json and syncs)"
   echo "  propose <file> [--category] Contribute a local rule to the shared library via PR"
   echo "  validate                    Lint all library rules for valid frontmatter"
   echo "  doctor                      Check installation health and symlink integrity"
@@ -571,6 +631,7 @@ cmd_help() {
   echo -e "${BOLD}EXAMPLES${NC}"
   echo "  $script install"
   echo "  $script list"
+  echo "  $script profile backend"
   echo "  $script add workflows/pr-review"
   echo "  $script sync"
   echo "  $script propose .cursor/rules/my-rule.mdc --category workflows"
@@ -599,6 +660,7 @@ main() {
     list)     cmd_list "$@" ;;
     add)      cmd_add "$@" ;;
     remove)   cmd_remove "$@" ;;
+    profile)  cmd_profile "$@" ;;
     propose)  cmd_propose "$@" ;;
     validate) cmd_validate ;;
     doctor)   cmd_doctor ;;
