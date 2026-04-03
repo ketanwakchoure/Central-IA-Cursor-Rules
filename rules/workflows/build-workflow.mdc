@@ -1,0 +1,32 @@
+---
+description: Build workflow for legacy SuiteScript products - never directly edit build output files
+globs: build/shopify/Celigo_ShopifyConnector.js, build/shopify/Celigo_ShopifyConnector.closure.js
+alwaysApply: false
+---
+
+# Build Workflow
+
+NEVER directly edit files under `build/shopify/`. These are generated outputs.
+
+## Correct Workflow
+
+1. Edit source files only (under `shopify/`, `etail/`, etc.)
+2. Run the Ant build to regenerate both concatenated and minified files:
+   ```
+   cd build/shopify
+   ant -f build-Celigo_ShopifyConnector.xml compile
+   ```
+3. If the Closure Compiler skips with "None of the files changed", delete the closure file first:
+   ```
+   rm build/shopify/Celigo_ShopifyConnector.closure.js
+   ant -f build-Celigo_ShopifyConnector.xml compile
+   ```
+4. Verify the build output matches expectations with `git diff`
+
+## Key Files
+
+- Source files: `shopify/hooks/`, `etail/integratorio/`, etc.
+- Build config: `build/shopify/build-Celigo_ShopifyConnector.xml`
+- Build properties: `build/shopify/Celigo_ShopifyConnector.properties`
+- Concatenated output: `build/shopify/Celigo_ShopifyConnector.js`
+- Minified output: `build/shopify/Celigo_ShopifyConnector.closure.js`

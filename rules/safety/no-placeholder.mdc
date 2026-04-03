@@ -1,0 +1,20 @@
+---
+description: Never leave incomplete code with TODO comments or placeholder implementations
+alwaysApply: true
+---
+
+# No Placeholder Code
+
+Every function, method, and code block you write MUST be fully implemented. Never leave:
+
+- `// TODO: implement this`
+- `// FIXME: ...`
+- `throw new Error('Not implemented')`
+- Empty function bodies
+- Stub implementations that return hardcoded values as stand-ins
+
+If a task is too large to complete in one step, break it into smaller fully-implemented pieces rather than leaving placeholders.
+
+## When you cannot complete something
+
+If you genuinely cannot implement a piece of logic (e.g., missing context, unclear requirements), explicitly tell the user what is missing and ask for clarification. Do NOT silently insert a placeholder.

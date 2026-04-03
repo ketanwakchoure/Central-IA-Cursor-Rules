@@ -1,0 +1,17 @@
+---
+description: <One-line description of what this rule does>
+globs: <optional comma-separated file patterns, e.g. "src/**/*.ts">
+alwaysApply: false
+---
+
+# Rule Name
+
+<Rule content here. Write clear, actionable instructions for the AI agent.>
+
+## When to apply
+
+<Describe the conditions under which this rule should be activated.>
+
+## Examples
+
+<Provide concrete good/bad examples if helpful.>

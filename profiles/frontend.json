@@ -1,0 +1,11 @@
+{
+  "description": "Rules for frontend development",
+  "rules": [
+    "safety/no-placeholder",
+    "safety/verify-packages",
+    "safety/no-secret-commit",
+    "workflows/pr-review"
+  ],
+  "skills": [],
+  "agents": []
+}

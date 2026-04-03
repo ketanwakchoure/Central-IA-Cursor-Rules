@@ -1,0 +1,13 @@
+{
+  "description": "All available rules for full-stack development",
+  "rules": [
+    "safety/no-placeholder",
+    "safety/verify-packages",
+    "safety/no-secret-commit",
+    "workflows/pr-review",
+    "workflows/build-workflow",
+    "workflows/test-runner"
+  ],
+  "skills": [],
+  "agents": []
+}

@@ -1,0 +1,10 @@
+{
+  "library": "~/.cursor-rules-library",
+  "profile": "default",
+  "rules": [
+    "workflows/pr-review",
+    "safety/no-placeholder"
+  ],
+  "skills": [],
+  "agents": []
+}

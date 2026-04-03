@@ -1,0 +1,23 @@
+---
+name: <skill-name>
+description: <One-line description>
+disable-model-invocation: false
+---
+
+# Skill Name
+
+<Detailed instructions for the AI agent when this skill is invoked.>
+
+## Prerequisites
+
+<List any tools, MCPs, or context the agent needs before running this skill.>
+
+## Steps
+
+1. <Step one>
+2. <Step two>
+3. <Step three>
+
+## Output
+
+<Describe what the agent should return or produce when this skill completes.>

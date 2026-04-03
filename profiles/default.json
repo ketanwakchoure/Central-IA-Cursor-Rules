@@ -1,0 +1,10 @@
+{
+  "description": "Sensible defaults for any project -- safety rules that should always be active",
+  "rules": [
+    "safety/no-placeholder",
+    "safety/verify-packages",
+    "safety/no-secret-commit"
+  ],
+  "skills": [],
+  "agents": []
+}

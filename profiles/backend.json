@@ -1,0 +1,12 @@
+{
+  "description": "Rules for backend and API development",
+  "rules": [
+    "safety/no-placeholder",
+    "safety/verify-packages",
+    "safety/no-secret-commit",
+    "workflows/pr-review",
+    "workflows/test-runner"
+  ],
+  "skills": [],
+  "agents": []
+}

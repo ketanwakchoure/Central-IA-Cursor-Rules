@@ -1,0 +1,20 @@
+---
+description: Verify package and module existence before importing -- never assume based on training data
+alwaysApply: true
+---
+
+# Verify Packages Before Importing
+
+Before adding any `import` or `require` statement for a package you are not certain exists in the project:
+
+1. Check `package.json` (or the relevant dependency file) to confirm the package is listed.
+2. If the package is not listed, check whether it is a built-in module (e.g., `fs`, `path`, `crypto` in Node.js).
+3. If neither, tell the user the package needs to be installed and suggest the install command.
+
+Never fabricate package names or assume a package exists based on naming patterns. Package ecosystems change frequently and training data may be outdated.
+
+## Common mistakes to avoid
+
+- Importing a package that was renamed or deprecated (e.g., `request` -> `node-fetch` or `axios`)
+- Using a sub-path import that doesn't exist (e.g., `lodash/fp/pipe` vs `lodash/fp`)
+- Assuming a `@types/*` package exists for every npm package

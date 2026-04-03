@@ -1,0 +1,233 @@
+---
+description: Review, validate, fix, run and comment on auto-generated test case PRs. Trigger by saying "Review PR" with a PR link and Zephyr test case key.
+alwaysApply: false
+---
+
+# PR Review & Fix Workflow for Auto-Generated Test Cases
+
+When the user says **"Review PR"** and provides a PR link (or PR number) along with a Zephyr test case key (e.g., PRE-T3380), execute the following end-to-end workflow.
+
+---
+
+## Phase 1: Gather Context
+
+### 1.1 Fetch PR Details
+- Use GitHub MCP tools to get PR metadata, files, and diff.
+- Identify the test case ID (e.g., T3380), suite name, and all payload/response files.
+- Checkout the PR branch locally: `git fetch origin <branch> && git checkout <branch>`.
+
+### 1.2 Fetch Zephyr Test Case (Source of Truth)
+- Use Zephyr Scale MCP tools to get the test case details:
+  - `getTestCase` with the provided key (e.g., `PRE-T3380`).
+  - `getTestCaseTestSteps` to retrieve all steps and expected results.
+- Extract:
+  - **Name**: The test case name.
+  - **Precondition**: What must be true before the test runs.
+  - **Test Steps**: Each step description and expected result.
+  - **Expected Result**: Dashboard counts (numSuccess, numIgnore, numError) and any NS record expectations.
+
+### 1.3 Find a Reference Test Case in the Same Suite
+- Identify the correct suite directory (e.g., `Refund_Import_Suite`) by checking existing test cases:
+  ```
+  ls testcases/   # Find the suite directory that matches
+  ```
+- Pick a similar, **passing** test case from the same suite (e.g., T3381 for refund, T3309 for another pattern).
+- Read the reference test case JSON and its payload/response files to establish the **correct pattern**.
+
+---
+
+## Phase 2: Validate — Compare PR Against Zephyr + Reference
+
+### 2.1 Name & Precondition Check
+- Compare PR test case name against Zephyr `name` field.
+- Verify preconditions match the Zephyr `precondition` field.
+
+### 2.2 Directory Structure Check
+- Test case JSON must be in `testcases/<SUITE_NAME>/` (NOT a different directory).
+- Payloads must be in `test-data/<SUITE_NAME>/payloads/<TEST_ID>/`.
+- Responses must be in `test-data/<SUITE_NAME>/responses/<TEST_ID>/`.
+- All `payload` and `body` path references inside the test case JSON must use the correct suite directory.
+
+### 2.3 Interaction Naming Check
+- Compare interaction names (`test`, `test_title`) against the reference test case pattern.
+- Convention: `<TEST_ID>OrderImport`, `<TEST_ID>Fulfillment`, `<TEST_ID>CashSaleImport`, `<TEST_ID>RefundImport` — NOT verbose names like `<TEST_ID>VerifyCashsaleOrderImport`.
+- All payload/response file names must follow the same concise naming.
+
+### 2.4 Environment Variable Validation (CRITICAL)
+- Extract ALL `process.env[...]` references from every payload and response file.
+- Cross-check EACH one against `env/dev.env` to confirm it exists.
+- Common invalid patterns to watch for:
+  - `DEFAULT_FIRST_TRACKABLE_PRODUCT.SKU` → should be `DEFAULTS.PRODUCTS.0.SKU`
+  - `DEFAULT_FIRST_TAXABLE_CUSTOMER.ID` → should be `DEFAULT_TAXABLE_CUSTOMER.EMAIL`
+  - Any env var with `_FIRST_` prefix is suspect — verify it exists.
+- Compare against the reference test case to confirm correct env var names.
+
+### 2.5 Dashboard Count Validation
+- Check `numSuccess`, `numIgnore`, `numError` in flow response JSON files.
+- Compare against Zephyr expected results (e.g., "Success as 1, Ignore as 1, Fail as 0").
+- For CashSale refund scenarios: expect `numSuccess: 1, numIgnore: 1` (Cash Refund succeeds, Customer Refund ignored).
+
+### 2.6 Test Case JSON Structure Validation
+Compare against the reference test case for:
+- **`store_*` expressions**: The `createSHPFDraftOrderthoughAPI` auto-stores `lineItem1`, `lineItemQty1`, `shopifyOrderId`, etc. Extra `store_*` expressions may overwrite with `undefined` if the path doesn't match. Remove them unless confirmed necessary.
+- **`dontStopExecutionOnFailure`**: Should NOT be present on flow check steps unless the reference has it.
+- **`callCounter`**: Only needed when `loopFor > 1`. Remove if set to `1` on single-call steps.
+- **`dataValidationMethod`**: Must match the scenario:
+  - Sales Order validation: `validateSalesOrderWithDiscountItem`
+  - CashSale validation: `verifyCashsaleDataFromNetsuite` (NOT `validateCashSaleWithDiscountItem` unless discounts are involved)
+  - CashRefund validation: `verifyCashRefundDataFromNetsuite`
+  - Shopify fulfillment: `verifyShopifyFulfillment`
+
+### 2.7 Payload Content Validation
+- **Refund settings**: `"NetSuite item to track order refund adjustments as a line item"` should be `"automation refund line item"` (NOT `"ShipSubstitute_Payment"`).
+- **Location references**: Use `process.env[NS_DEFAULT.LOCATION1]` not hardcoded `"Location1"`.
+- **`parent_id` in refund payload**: Should use template variable `{{<TEST_ID>transactionId}}` (the framework overrides it, but the template documents intent).
+- **Gross Amount in expected responses**: Calculate manually: `(price × quantity) + tax`. Verify against actual test execution.
+
+### 2.8 Payment Method in Order Settings — Invoice vs Cash Sale Flows (CRITICAL)
+- When the test flow uses **Invoice** (AutoBillToInvoice → Credit Memo):
+  - The **order import settings** (`OrderImport_updateSettings1.json`) must **NOT** include `"Payment": { "Use Custom Default Value": "Cash" }`. Invoice flows do not need a payment method on the Sales Order.
+- The `"Payment"` block in order settings should ONLY be present for **Cash Sale / Cash Refund** flows (Fulfillment → CashSaleImport → RefundImport).
+- If the flow uses `"NetSuite sales order to NetSuite invoice (add)"` and `validateCreditMemoWithDiscountItem`, remove the `"Payment"` block from order import settings.
+
+### 2.9 Variance Fields Validation (CRITICAL)
+- ALL variance fields in expected response files MUST be `"0"`. Non-zero variance indicates a data mismatch between Shopify and NetSuite and should NEVER be accepted as expected.
+- Check these fields in EVERY `*_expectedResponse*.json` file (OrderImport, CashSaleImport, AutoBillToInvoice, RefundImport, CreditMemo):
+  - `"eTail Order Total Variance"` — MUST be `"0"`
+  - `"eTail Discount Total Variance"` — MUST be `"0"`
+  - `"eTail Tax Total Variance"` — MUST be `"0"`
+  - `"eTail Ship Total Variance"` — MUST be `"0"`
+- If any variance is non-zero (e.g., `".29"`, `"-33.87"`), flag it as a bug:
+  - Investigate the root cause (incorrect tax amounts, wrong shipping tax, missing discount, currency mismatch).
+  - Fix the underlying data issue (payload, settings, or expected amounts) so variance resolves to `"0"`.
+  - Do NOT simply change the variance to `"0"` without fixing the root cause — the actual test run must also produce `"0"`.
+
+---
+
+## Phase 3: Fix All Issues
+
+Apply fixes in this order:
+1. Move files to correct suite directory if needed.
+2. Rename files to match concise naming convention.
+3. Fix all env var references across all payload and response files.
+4. Fix test case JSON: interaction names, path references, validation methods, remove unnecessary flags.
+5. Fix expected response values (dashboard counts, Gross Amount, etc.).
+
+---
+
+## Phase 4: Run the Test
+
+### 4.1 Initial Run — Auto-fix Expected Responses
+
+Run the test **first** with `UPDATE_EXPECTED=true` to automatically update all expected response JSON files with the actual values returned by NetSuite. This eliminates the tedious cycle of fixing one validation mismatch at a time:
+```bash
+cd /Users/ketanwakchoure/Desktop/celigo/rest-api-ia && UPDATE_EXPECTED=true NODE_ENV=dev SUITE=<SUITE_NAME> TAG=<TEST_ID> npm run test 2>&1
+```
+This will overwrite the expected response files (`*_expectedResponse*.json`) with the actual data from the test run, so subsequent normal runs pass data validation.
+
+### 4.2 Normal Run — Verify All Tests Pass
+
+After the `UPDATE_EXPECTED` run completes, run the test **normally** (without the flag) to confirm everything passes:
+```bash
+cd /Users/ketanwakchoure/Desktop/celigo/rest-api-ia && NODE_ENV=dev SUITE=<SUITE_NAME> TAG=<TEST_ID> npm run test 2>&1
+```
+
+- Monitor progress (tests typically take 5-8 minutes).
+- Check for:
+  - Build errors (TypeScript compilation).
+  - Runtime errors (undefined variables, API failures).
+  - Validation failures (field mismatches in expected responses).
+- If failures occur, analyze the output, fix the root cause, and re-run.
+- Continue until **all tests pass**.
+
+### 4.3 Post-Run Variance Check
+
+After the test passes, re-verify all variance fields in the updated expected response files are `"0"`. If `UPDATE_EXPECTED=true` populated any non-zero variance, it means the underlying data has an issue that needs investigation and fixing before the PR can be approved.
+
+---
+
+## Phase 5: Update PR Description with Test Report
+
+Once all tests pass, update the PR description (using `update_pull_request`) by appending the following sections to the existing auto-generated body:
+
+### 5.1 Test Execution Report Table
+```markdown
+### 🧪 Test Execution Report
+
+| Step | Interaction | Result | Duration |
+|------|------------|--------|----------|
+| 1 | <TEST_ID>OrderImport | ✅ PASSED | Xs |
+| 2 | <TEST_ID>CashSaleImport | ✅ PASSED | Xs |
+| 3 | <TEST_ID>RefundImport | ✅ PASSED | Xs |
+
+**Test Suites:** 1 passed, 1 total
+**Tests:** N passed, N total
+**Total Time:** Xs
+
+**Report:** [Reporting Portal](<URL from test output>)
+```
+
+### 5.2 Fixes Summary Table
+List all issues found and fixed during review:
+```markdown
+### 🔧 Fixes Applied During Review
+
+| # | Category | Issue | Fix |
+|---|----------|-------|-----|
+| 1 | Naming | <description> | <fix applied> |
+| 2 | Expected Values | <description> | <fix applied> |
+```
+
+### 5.3 File Structure Update
+Update the `📂 File Structure` section if files were renamed or the suite directory changed.
+
+---
+
+## Phase 6: Add PR Review Comments
+
+Once all issues are identified, add inline review comments to the PR using the following prompt and approach:
+
+### Review Comment Prompt
+
+Act as a Senior Software Engineer and production-grade code reviewer. Fetch and analyze the PR, examine all modified and related files, and perform a strict, line-by-line inline review. Use the Zephyr test case data and cross-reference other test cases in the same test suite and existing implementation patterns in the repository to validate correctness and consistency. Add inline comments exactly at the lines where issues occur, not high-level summaries.
+
+For every issue, the inline comment must explicitly include:
+- **What is wrong**: The precise problem at that line.
+- **Why it is wrong**: Impact on correctness, edge cases, flows, performance, security, readability, maintainability, or test reliability.
+- **What is correct**: The exact fix or alternative implementation that should be used, including specific methods, conditions, validations, or patterns already used in the repo or test suite.
+- **Why it is correct**: A clear justification referencing existing test cases, repository conventions, documented behavior, or specific code paths that prove this approach is expected and correct.
+
+### How to Submit
+1. Create a pending review: `pull_request_review_write` with method `create`.
+2. Add inline comments: `add_comment_to_pending_review` for each issue at the exact diff line.
+3. Submit the review: `pull_request_review_write` with method `submit_pending` and event `COMMENT`.
+   - Note: Use `COMMENT` (not `REQUEST_CHANGES`) if reviewing your own PR.
+4. Include a summary in the review body listing all issue categories and the test execution result.
+
+---
+
+## Quick Reference: Common Env Vars in dev.env
+
+| Purpose | Correct Env Var | Value (dev) |
+|---------|----------------|-------------|
+| Customer email | `DEFAULT_TAXABLE_CUSTOMER.EMAIL` | celigo@gmail.com |
+| Product 1 SKU | `DEFAULTS.PRODUCTS.0.SKU` | Testautomation1 |
+| Product 2 SKU | `DEFAULTS.PRODUCTS.1.SKU` | Test automation2 |
+| Shopify currency | `CURRENCY.SHOPIFY` | USD |
+| NetSuite currency | `CURRENCY.NETSUITE` | USA |
+| NS Location 1 | `NS_DEFAULT.LOCATION1` | Location1 |
+| SH Location 1 ID | `SH_DEFAULT.Location1ID` | 16631300151 |
+| Store ID | `SHOPIFY_PRIMARY_STORE_DATA.STORE_ID` | 7106625591 |
+| Store Name | `SHOPIFY_PRIMARY_STORE_DATA.STORE_NAME` | auto-qa5 |
+| Channel | `AUT.SH` | Shopify |
+
+## Quick Reference: Auto-stored Variables by createSHPFDraftOrderthoughAPI
+
+The framework auto-stores these — do NOT add redundant `store_*` expressions:
+- `<TEST_ID>shopifyOrderId` — Shopify order ID
+- `<TEST_ID>shopifyOrderNumber` — Order number (without #)
+- `<TEST_ID>customerId` — Shopify customer ID
+- `<TEST_ID>customerFirstName` / `customerLastName`
+- `<TEST_ID>lineItem1`, `lineItem2`, ... — Line item IDs
+- `<TEST_ID>lineItemQty1`, `lineItemQty2`, ... — Line item quantities
+- `<TEST_ID>shippingCost` — Shipping cost (if shipping lines exist)
