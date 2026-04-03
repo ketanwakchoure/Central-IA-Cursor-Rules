@@ -272,10 +272,29 @@ cmd_update() {
 cmd_list() {
   require_library
 
-  local filter_category="${1:-}"
-  local section
+  local filter_type="" filter_category=""
 
-  for section in rules skills agents; do
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      rules|skills|agents|profiles) filter_type="$1"; shift ;;
+      *) filter_category="$1"; shift ;;
+    esac
+  done
+
+  # ── list profiles ──
+  if [[ "$filter_type" == "profiles" ]]; then
+    cmd_profile
+    return
+  fi
+
+  local sections
+  if [[ -n "$filter_type" ]]; then
+    sections="$filter_type"
+  else
+    sections="rules skills agents"
+  fi
+
+  for section in $sections; do
     local base="$LIBRARY_PATH/$section"
     [[ ! -d "$base" ]] && continue
 
@@ -1025,7 +1044,11 @@ cmd_help() {
   echo "  install [repo-url]          Clone the shared library to ~/.cursor-rules-library"
   echo "  sync [-f]                   Symlink rules from library into current workspace"
   echo "  update [-f]                 Pull latest library changes and re-sync"
-  echo "  list [--category <cat>]     List all available rules, skills, and agents"
+  echo "  list                        List all rules, skills, and agents"
+  echo "  list rules [category]       List rules (optionally filter by category)"
+  echo "  list skills                 List skills"
+  echo "  list agents                 List agents"
+  echo "  list profiles               List profiles"
   echo "  add <rule-id>               Add a rule"
   echo "  add skill <skill-id>        Add a skill"
   echo "  add agent <agent-id>        Add an agent"
@@ -1044,7 +1067,11 @@ cmd_help() {
   echo ""
   echo -e "${BOLD}EXAMPLES${NC}"
   echo "  $script install"
-  echo "  $script list"
+  echo "  $script list                              # everything"
+  echo "  $script list rules                         # rules only"
+  echo "  $script list rules safety                  # rules in safety category"
+  echo "  $script list skills                        # skills only"
+  echo "  $script list profiles                      # profiles"
   echo "  $script profile                          # list profiles"
   echo "  $script profile backend                   # preview backend profile"
   echo "  $script add profile backend               # install backend profile"
