@@ -92,27 +92,37 @@ cmd_sync() {
   require_library
   require_config
 
-  local profile rules_list skills_list agents_list
-  profile=$(jq -r '.profile // empty' "$CONFIG_FILE")
-
+  local rules_list skills_list agents_list
   rules_list=()
   skills_list=()
   agents_list=()
 
-  if [[ -n "$profile" ]]; then
-    local profile_file="$LIBRARY_PATH/profiles/${profile}.json"
-    if [[ ! -f "$profile_file" ]]; then
-      err "Profile '$profile' not found at $profile_file"
-      exit 1
-    fi
-    while IFS= read -r r; do rules_list+=("$r"); done < <(jq -r '.rules[]? // empty' "$profile_file")
-    while IFS= read -r s; do skills_list+=("$s"); done < <(jq -r '.skills[]? // empty' "$profile_file")
-    while IFS= read -r a; do agents_list+=("$a"); done < <(jq -r '.agents[]? // empty' "$profile_file")
+  # Load rules from all active profiles (supports both "profile" string and "profiles" array)
+  local profiles_json
+  profiles_json=$(jq -r '
+    if .profiles then .profiles[]
+    elif .profile then .profile
+    else empty
+    end' "$CONFIG_FILE" 2>/dev/null)
+
+  if [[ -n "$profiles_json" ]]; then
+    while IFS= read -r pname; do
+      [[ -z "$pname" ]] && continue
+      local profile_file="$LIBRARY_PATH/profiles/${pname}.json"
+      if [[ ! -f "$profile_file" ]]; then
+        warn "Profile '$pname' not found at $profile_file -- skipping"
+        continue
+      fi
+      while IFS= read -r r; do [[ -n "$r" ]] && rules_list+=("$r"); done < <(jq -r '.rules[]?' "$profile_file")
+      while IFS= read -r s; do [[ -n "$s" ]] && skills_list+=("$s"); done < <(jq -r '.skills[]?' "$profile_file")
+      while IFS= read -r a; do [[ -n "$a" ]] && agents_list+=("$a"); done < <(jq -r '.agents[]?' "$profile_file")
+    done <<< "$profiles_json"
   fi
 
-  while IFS= read -r r; do rules_list+=("$r"); done < <(jq -r '.rules[]? // empty' "$CONFIG_FILE")
-  while IFS= read -r s; do skills_list+=("$s"); done < <(jq -r '.skills[]? // empty' "$CONFIG_FILE")
-  while IFS= read -r a; do agents_list+=("$a"); done < <(jq -r '.agents[]? // empty' "$CONFIG_FILE")
+  # Load explicit rules from config
+  while IFS= read -r r; do [[ -n "$r" ]] && rules_list+=("$r"); done < <(jq -r '.rules[]?' "$CONFIG_FILE")
+  while IFS= read -r s; do [[ -n "$s" ]] && skills_list+=("$s"); done < <(jq -r '.skills[]?' "$CONFIG_FILE")
+  while IFS= read -r a; do [[ -n "$a" ]] && agents_list+=("$a"); done < <(jq -r '.agents[]?' "$CONFIG_FILE")
 
   # Deduplicate (macOS bash 3.x compatible)
   _dedup_array() {
@@ -325,10 +335,23 @@ cmd_add() {
 
     _ensure_config
 
+    # Migrate "profile" (string) to "profiles" (array) if needed, then append
     local tmp
     tmp=$(mktemp)
-    jq --arg p "$profile_name" '.profile = $p' "$CONFIG_FILE" > "$tmp" && mv "$tmp" "$CONFIG_FILE"
-    ok "Set profile to '${profile_name}' in $CONFIG_FILE"
+    jq --arg p "$profile_name" '
+      # Migrate legacy "profile" string to "profiles" array
+      (if .profile then [.profile] else (.profiles // []) end) as $existing
+      | if ($existing | index($p)) then .
+        else . + {profiles: ($existing + [$p])}
+        end
+      | del(.profile)
+    ' "$CONFIG_FILE" > "$tmp" && mv "$tmp" "$CONFIG_FILE"
+
+    # Check if it was already present
+    local already
+    already=$(jq -r --arg p "$profile_name" '.profiles // [] | index($p) // empty' "$CONFIG_FILE" 2>/dev/null || true)
+
+    ok "Added profile '${profile_name}' to $CONFIG_FILE"
 
     local pdesc
     pdesc=$(jq -r '.description // ""' "$profile_file")
@@ -381,40 +404,84 @@ cmd_remove() {
     exit 1
   fi
 
-  # ── remove profile ──
+  # ── remove profile <name> ──
   if [[ "$first" == "profile" ]]; then
-    local current_profile
-    current_profile=$(jq -r '.profile // empty' "$CONFIG_FILE")
-    if [[ -z "$current_profile" ]]; then
-      warn "No profile is set in $CONFIG_FILE"
+    local profile_name="${2:-}"
+    if [[ -z "$profile_name" ]]; then
+      err "Usage: $(basename "$0") remove profile <name>"
+      exit 1
+    fi
+
+    # Check the profile is actually active (support both "profile" and "profiles")
+    local is_active
+    is_active=$(jq -r --arg p "$profile_name" '
+      if .profiles then (.profiles | index($p) // empty)
+      elif .profile == $p then "yes"
+      else empty
+      end' "$CONFIG_FILE" 2>/dev/null || true)
+
+    if [[ -z "$is_active" ]]; then
+      warn "Profile '$profile_name' is not active in $CONFIG_FILE"
       return
     fi
 
-    local profile_file="$LIBRARY_PATH/profiles/${current_profile}.json"
+    local profile_file="$LIBRARY_PATH/profiles/${profile_name}.json"
 
-    # Collect rules that belong ONLY to the profile (not in explicit rules list)
-    local explicit_rules profile_rules
-    explicit_rules=$(jq -r '.rules[]?' "$CONFIG_FILE" 2>/dev/null || true)
-
+    # Collect rules from the profile being removed
+    local removing_rules=""
     if [[ -f "$profile_file" ]]; then
-      profile_rules=$(jq -r '.rules[]?' "$profile_file" 2>/dev/null || true)
+      removing_rules=$(jq -r '.rules[]?' "$profile_file" 2>/dev/null || true)
     fi
 
-    # Remove profile from config
+    # Collect rules that should be KEPT (from other active profiles + explicit rules)
+    local keep_rules=""
+
+    # Rules from other active profiles
+    local other_profiles
+    other_profiles=$(jq -r --arg p "$profile_name" '
+      if .profiles then [.profiles[] | select(. != $p)][]
+      else empty
+      end' "$CONFIG_FILE" 2>/dev/null || true)
+
+    if [[ -n "$other_profiles" ]]; then
+      while IFS= read -r op; do
+        [[ -z "$op" ]] && continue
+        local opfile="$LIBRARY_PATH/profiles/${op}.json"
+        if [[ -f "$opfile" ]]; then
+          local oprules
+          oprules=$(jq -r '.rules[]?' "$opfile" 2>/dev/null || true)
+          if [[ -n "$oprules" ]]; then
+            keep_rules="${keep_rules}${oprules}"$'\n'
+          fi
+        fi
+      done <<< "$other_profiles"
+    fi
+
+    # Explicit rules from config
+    local explicit
+    explicit=$(jq -r '.rules[]?' "$CONFIG_FILE" 2>/dev/null || true)
+    if [[ -n "$explicit" ]]; then
+      keep_rules="${keep_rules}${explicit}"$'\n'
+    fi
+
+    # Remove the profile from config
     local tmp
     tmp=$(mktemp)
-    jq 'del(.profile)' "$CONFIG_FILE" > "$tmp" && mv "$tmp" "$CONFIG_FILE"
-    ok "Removed profile '${current_profile}' from $CONFIG_FILE"
+    jq --arg p "$profile_name" '
+      if .profiles then .profiles = [.profiles[] | select(. != $p)]
+      else del(.profile)
+      end' "$CONFIG_FILE" > "$tmp" && mv "$tmp" "$CONFIG_FILE"
+    ok "Removed profile '${profile_name}' from $CONFIG_FILE"
 
-    # Remove symlinks for profile-only rules (not in explicit rules list)
+    # Remove symlinks for rules unique to this profile
     local removed=0
-    if [[ -n "$profile_rules" ]]; then
+    if [[ -n "$removing_rules" ]]; then
       while IFS= read -r rule_id; do
         [[ -z "$rule_id" ]] && continue
 
-        # Skip if rule is also in the explicit rules list
-        if echo "$explicit_rules" | grep -qx "$rule_id" 2>/dev/null; then
-          info "Keeping '$rule_id' (also in explicit rules)"
+        # Skip if rule exists in keep_rules (other profiles or explicit)
+        if echo "$keep_rules" | grep -qx "$rule_id" 2>/dev/null; then
+          info "Keeping '$rule_id' (used by another profile or explicit rules)"
           continue
         fi
 
@@ -424,14 +491,11 @@ cmd_remove() {
           ok "Removed symlink: $dest"
           ((removed++))
         fi
-      done <<< "$profile_rules"
+      done <<< "$removing_rules"
     fi
 
     echo ""
-    ok "Profile removed. $removed symlink(s) cleaned up."
-    if [[ -n "$explicit_rules" ]]; then
-      info "Explicit rules in $CONFIG_FILE are still active."
-    fi
+    ok "Profile '${profile_name}' removed. $removed symlink(s) cleaned up."
     return
   fi
 
@@ -477,7 +541,7 @@ cmd_profile() {
     info "Usage:"
     info "  $(basename "$0") profile <name>           Preview rules in a profile"
     info "  $(basename "$0") add profile <name>       Install a profile"
-    info "  $(basename "$0") remove profile           Remove the active profile"
+    info "  $(basename "$0") remove profile <name>    Remove a specific profile"
     return
   fi
 
@@ -720,7 +784,7 @@ cmd_help() {
   echo "  add <rule-id>               Add a single rule to .cursor-rules.json and symlink it"
   echo "  add profile <name>          Install a profile (updates JSON + syncs all rules)"
   echo "  remove <rule-id>            Remove a single rule and its symlink"
-  echo "  remove profile              Remove the active profile and its non-overlapping rules"
+  echo "  remove profile <name>       Remove a profile; only deletes non-overlapping rules"
   echo "  profile                     List available profiles"
   echo "  profile <name>              Preview rules in a profile"
   echo "  propose <file> [--category] Contribute a local rule to the shared library via PR"
@@ -735,7 +799,7 @@ cmd_help() {
   echo "  $script profile backend                   # preview backend profile"
   echo "  $script add profile backend               # install backend profile"
   echo "  $script add workflows/pr-review           # add a single rule"
-  echo "  $script remove profile                    # remove active profile"
+  echo "  $script remove profile backend             # remove backend profile"
   echo "  $script sync"
   echo "  $script propose .cursor/rules/my-rule.mdc --category workflows"
   echo "  $script doctor"
