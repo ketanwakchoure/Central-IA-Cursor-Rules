@@ -279,28 +279,11 @@ cmd_list() {
   done
 }
 
-# ── add ───────────────────────────────────────────────────────────────
-cmd_add() {
-  require_jq
-  require_library
-
-  local rule_id="${1:-}"
-  if [[ -z "$rule_id" ]]; then
-    err "Usage: $(basename "$0") add <rule-id>"
-    err "Example: $(basename "$0") add workflows/pr-review"
-    exit 1
-  fi
-
-  local src="$LIBRARY_PATH/rules/${rule_id}.mdc"
-  if [[ ! -f "$src" ]]; then
-    err "Rule not found: $rule_id"
-    err "Run '$(basename "$0") list' to see available rules."
-    exit 1
-  fi
-
+# ── helpers for config bootstrap ──────────────────────────────────────
+_ensure_config() {
   if [[ ! -f "$CONFIG_FILE" ]]; then
     info "Creating $CONFIG_FILE ..."
-    cat > "$CONFIG_FILE" <<EOF
+    cat > "$CONFIG_FILE" <<'EOF'
 {
   "library": "~/.cursor-rules-library",
   "rules": [],
@@ -309,6 +292,63 @@ cmd_add() {
 }
 EOF
   fi
+}
+
+# ── add ───────────────────────────────────────────────────────────────
+cmd_add() {
+  require_jq
+  require_library
+
+  local first="${1:-}"
+  if [[ -z "$first" ]]; then
+    err "Usage:"
+    err "  $(basename "$0") add <rule-id>          Add a single rule"
+    err "  $(basename "$0") add profile <name>     Add a profile and sync its rules"
+    exit 1
+  fi
+
+  # ── add profile <name> ──
+  if [[ "$first" == "profile" ]]; then
+    local profile_name="${2:-}"
+    if [[ -z "$profile_name" ]]; then
+      err "Usage: $(basename "$0") add profile <name>"
+      err "Run '$(basename "$0") profile' to see available profiles."
+      exit 1
+    fi
+
+    local profile_file="$LIBRARY_PATH/profiles/${profile_name}.json"
+    if [[ ! -f "$profile_file" ]]; then
+      err "Profile '$profile_name' not found."
+      err "Run '$(basename "$0") profile' to see available profiles."
+      exit 1
+    fi
+
+    _ensure_config
+
+    local tmp
+    tmp=$(mktemp)
+    jq --arg p "$profile_name" '.profile = $p' "$CONFIG_FILE" > "$tmp" && mv "$tmp" "$CONFIG_FILE"
+    ok "Set profile to '${profile_name}' in $CONFIG_FILE"
+
+    local pdesc
+    pdesc=$(jq -r '.description // ""' "$profile_file")
+    [[ -n "$pdesc" ]] && info "$pdesc"
+
+    echo ""
+    cmd_sync
+    return
+  fi
+
+  # ── add <rule-id> ──
+  local rule_id="$first"
+  local src="$LIBRARY_PATH/rules/${rule_id}.mdc"
+  if [[ ! -f "$src" ]]; then
+    err "Rule not found: $rule_id"
+    err "Run '$(basename "$0") list' to see available rules."
+    exit 1
+  fi
+
+  _ensure_config
 
   local already
   already=$(jq -r --arg id "$rule_id" '.rules[] | select(. == $id)' "$CONFIG_FILE" 2>/dev/null || true)
@@ -333,11 +373,70 @@ cmd_remove() {
   require_jq
   require_config
 
-  local rule_id="${1:-}"
-  if [[ -z "$rule_id" ]]; then
-    err "Usage: $(basename "$0") remove <rule-id>"
+  local first="${1:-}"
+  if [[ -z "$first" ]]; then
+    err "Usage:"
+    err "  $(basename "$0") remove <rule-id>       Remove a single rule"
+    err "  $(basename "$0") remove profile         Remove the active profile"
     exit 1
   fi
+
+  # ── remove profile ──
+  if [[ "$first" == "profile" ]]; then
+    local current_profile
+    current_profile=$(jq -r '.profile // empty' "$CONFIG_FILE")
+    if [[ -z "$current_profile" ]]; then
+      warn "No profile is set in $CONFIG_FILE"
+      return
+    fi
+
+    local profile_file="$LIBRARY_PATH/profiles/${current_profile}.json"
+
+    # Collect rules that belong ONLY to the profile (not in explicit rules list)
+    local explicit_rules profile_rules
+    explicit_rules=$(jq -r '.rules[]?' "$CONFIG_FILE" 2>/dev/null || true)
+
+    if [[ -f "$profile_file" ]]; then
+      profile_rules=$(jq -r '.rules[]?' "$profile_file" 2>/dev/null || true)
+    fi
+
+    # Remove profile from config
+    local tmp
+    tmp=$(mktemp)
+    jq 'del(.profile)' "$CONFIG_FILE" > "$tmp" && mv "$tmp" "$CONFIG_FILE"
+    ok "Removed profile '${current_profile}' from $CONFIG_FILE"
+
+    # Remove symlinks for profile-only rules (not in explicit rules list)
+    local removed=0
+    if [[ -n "$profile_rules" ]]; then
+      while IFS= read -r rule_id; do
+        [[ -z "$rule_id" ]] && continue
+
+        # Skip if rule is also in the explicit rules list
+        if echo "$explicit_rules" | grep -qx "$rule_id" 2>/dev/null; then
+          info "Keeping '$rule_id' (also in explicit rules)"
+          continue
+        fi
+
+        local dest=".cursor/rules/$(basename "$rule_id").mdc"
+        if [[ -L "$dest" ]]; then
+          rm "$dest"
+          ok "Removed symlink: $dest"
+          ((removed++))
+        fi
+      done <<< "$profile_rules"
+    fi
+
+    echo ""
+    ok "Profile removed. $removed symlink(s) cleaned up."
+    if [[ -n "$explicit_rules" ]]; then
+      info "Explicit rules in $CONFIG_FILE are still active."
+    fi
+    return
+  fi
+
+  # ── remove <rule-id> ──
+  local rule_id="$first"
 
   local tmp
   tmp=$(mktemp)
@@ -360,6 +459,7 @@ cmd_profile() {
 
   local profile_name="${1:-}"
 
+  # No args: list all profiles
   if [[ -z "$profile_name" ]]; then
     echo -e "${BOLD}Available profiles:${NC}"
     echo ""
@@ -374,10 +474,14 @@ cmd_profile() {
       echo -e "  ${GREEN}${pname}${NC}  --  ${pdesc} (${pcount} rules)"
     done < <(find "$LIBRARY_PATH/profiles" -name '*.json' 2>/dev/null | sort)
     echo ""
-    info "Usage: $(basename "$0") profile <name>"
+    info "Usage:"
+    info "  $(basename "$0") profile <name>           Preview rules in a profile"
+    info "  $(basename "$0") add profile <name>       Install a profile"
+    info "  $(basename "$0") remove profile           Remove the active profile"
     return
   fi
 
+  # With arg: preview the profile's rules
   local profile_file="$LIBRARY_PATH/profiles/${profile_name}.json"
   if [[ ! -f "$profile_file" ]]; then
     err "Profile '$profile_name' not found."
@@ -385,31 +489,24 @@ cmd_profile() {
     exit 1
   fi
 
-  if [[ ! -f "$CONFIG_FILE" ]]; then
-    info "Creating $CONFIG_FILE ..."
-    cat > "$CONFIG_FILE" <<EOF
-{
-  "library": "~/.cursor-rules-library",
-  "profile": "${profile_name}",
-  "rules": [],
-  "skills": [],
-  "agents": []
-}
-EOF
-  else
-    local tmp
-    tmp=$(mktemp)
-    jq --arg p "$profile_name" '.profile = $p' "$CONFIG_FILE" > "$tmp" && mv "$tmp" "$CONFIG_FILE"
-  fi
-
-  ok "Set profile to '${profile_name}' in $CONFIG_FILE"
-
   local pdesc
-  pdesc=$(jq -r '.description // ""' "$profile_file")
-  [[ -n "$pdesc" ]] && info "$pdesc"
+  pdesc=$(jq -r '.description // "(no description)"' "$profile_file")
+  echo -e "${BOLD}${profile_name}${NC}  --  ${pdesc}"
+  echo ""
+  echo -e "${BOLD}Rules:${NC}"
+  while IFS= read -r rule_id; do
+    [[ -z "$rule_id" ]] && continue
+    local src="$LIBRARY_PATH/rules/${rule_id}.mdc"
+    local desc="(not found)"
+    if [[ -f "$src" ]]; then
+      desc=$(extract_description "$src")
+      [[ -z "$desc" ]] && desc="(no description)"
+    fi
+    echo -e "  ${GREEN}${rule_id}${NC}  --  ${desc}"
+  done < <(jq -r '.rules[]?' "$profile_file")
 
   echo ""
-  cmd_sync
+  info "To install: $(basename "$0") add profile ${profile_name}"
 }
 
 # ── propose ───────────────────────────────────────────────────────────
@@ -620,9 +717,12 @@ cmd_help() {
   echo "  sync                        Symlink rules from library into current workspace"
   echo "  update                      Pull latest library changes and re-sync"
   echo "  list [--category <cat>]     List all available rules, skills, and agents"
-  echo "  add <rule-id>               Add a rule to .cursor-rules.json and symlink it"
-  echo "  remove <rule-id>            Remove a rule from .cursor-rules.json and its symlink"
-  echo "  profile [name]              Set a profile (updates .cursor-rules.json and syncs)"
+  echo "  add <rule-id>               Add a single rule to .cursor-rules.json and symlink it"
+  echo "  add profile <name>          Install a profile (updates JSON + syncs all rules)"
+  echo "  remove <rule-id>            Remove a single rule and its symlink"
+  echo "  remove profile              Remove the active profile and its non-overlapping rules"
+  echo "  profile                     List available profiles"
+  echo "  profile <name>              Preview rules in a profile"
   echo "  propose <file> [--category] Contribute a local rule to the shared library via PR"
   echo "  validate                    Lint all library rules for valid frontmatter"
   echo "  doctor                      Check installation health and symlink integrity"
@@ -631,8 +731,11 @@ cmd_help() {
   echo -e "${BOLD}EXAMPLES${NC}"
   echo "  $script install"
   echo "  $script list"
-  echo "  $script profile backend"
-  echo "  $script add workflows/pr-review"
+  echo "  $script profile                          # list profiles"
+  echo "  $script profile backend                   # preview backend profile"
+  echo "  $script add profile backend               # install backend profile"
+  echo "  $script add workflows/pr-review           # add a single rule"
+  echo "  $script remove profile                    # remove active profile"
   echo "  $script sync"
   echo "  $script propose .cursor/rules/my-rule.mdc --category workflows"
   echo "  $script doctor"
