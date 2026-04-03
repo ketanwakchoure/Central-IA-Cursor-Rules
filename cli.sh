@@ -346,6 +346,7 @@ _ensure_config() {
     cat > "$CONFIG_FILE" <<'EOF'
 {
   "library": "~/.cursor-rules-library",
+  "profiles": [],
   "rules": [],
   "skills": [],
   "agents": []
@@ -1104,7 +1105,7 @@ cmd_help() {
   echo "  Place a .cursor-rules.json in your workspace root:"
   echo '  {'
   echo '    "library": "~/.cursor-rules-library",'
-  echo '    "profile": "default",'
+  echo '    "profiles": ["default"],'
   echo '    "rules": ["workflows/pr-review", "safety/no-placeholder"],'
   echo '    "skills": [],'
   echo '    "agents": []'
