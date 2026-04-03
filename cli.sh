@@ -87,6 +87,8 @@ cmd_install() {
 }
 
 # ── sync ──────────────────────────────────────────────────────────────
+FORCE_SYNC=false
+
 cmd_sync() {
   require_jq
   require_library
@@ -167,8 +169,13 @@ cmd_sync() {
       if [[ -L "$dest" ]]; then
         rm "$dest"
       elif [[ -f "$dest" ]]; then
-        warn "Skipping $dest -- local file exists (not a symlink). Remove it first to sync."
-        continue
+        if [[ "$FORCE_SYNC" == "true" ]]; then
+          rm "$dest"
+          warn "Replaced local file: $dest"
+        else
+          warn "Skipping $dest -- local file exists (not a symlink). Use -f to force."
+          continue
+        fi
       fi
       ln -s "$src" "$dest"
       ok "Linked rule: $rule_id"
@@ -192,8 +199,13 @@ cmd_sync() {
       if [[ -L "$dest_file" ]]; then
         rm "$dest_file"
       elif [[ -f "$dest_file" ]]; then
-        warn "Skipping $dest_file -- local file exists. Remove it first to sync."
-        continue
+        if [[ "$FORCE_SYNC" == "true" ]]; then
+          rm "$dest_file"
+          warn "Replaced local file: $dest_file"
+        else
+          warn "Skipping $dest_file -- local file exists. Use -f to force."
+          continue
+        fi
       fi
       ln -s "$src" "$dest_file"
       ok "Linked skill: $skill_id"
@@ -215,8 +227,13 @@ cmd_sync() {
       if [[ -L "$dest" ]]; then
         rm "$dest"
       elif [[ -f "$dest" ]]; then
-        warn "Skipping $dest -- local file exists. Remove it first to sync."
-        continue
+        if [[ "$FORCE_SYNC" == "true" ]]; then
+          rm "$dest"
+          warn "Replaced local file: $dest"
+        else
+          warn "Skipping $dest -- local file exists. Use -f to force."
+          continue
+        fi
       fi
       ln -s "$src" "$dest"
       ok "Linked agent: $agent_id"
@@ -231,6 +248,13 @@ cmd_sync() {
 # ── update ────────────────────────────────────────────────────────────
 cmd_update() {
   require_library
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -f|--force) FORCE_SYNC=true; shift ;;
+      *) shift ;;
+    esac
+  done
 
   info "Pulling latest changes ..."
   git -C "$LIBRARY_PATH" pull --ff-only
@@ -778,8 +802,8 @@ cmd_help() {
   echo ""
   echo -e "${BOLD}COMMANDS${NC}"
   echo "  install [repo-url]          Clone the shared library to ~/.cursor-rules-library"
-  echo "  sync                        Symlink rules from library into current workspace"
-  echo "  update                      Pull latest library changes and re-sync"
+  echo "  sync [-f]                   Symlink rules from library into current workspace"
+  echo "  update [-f]                 Pull latest library changes and re-sync"
   echo "  list [--category <cat>]     List all available rules, skills, and agents"
   echo "  add <rule-id>               Add a single rule to .cursor-rules.json and symlink it"
   echo "  add profile <name>          Install a profile (updates JSON + syncs all rules)"
@@ -800,7 +824,9 @@ cmd_help() {
   echo "  $script add profile backend               # install backend profile"
   echo "  $script add workflows/pr-review           # add a single rule"
   echo "  $script remove profile backend             # remove backend profile"
-  echo "  $script sync"
+  echo "  $script sync                              # sync (skip local files)"
+  echo "  $script sync -f                           # force-replace local files"
+  echo "  $script update -f                          # pull + force-sync"
   echo "  $script propose .cursor/rules/my-rule.mdc --category workflows"
   echo "  $script doctor"
   echo ""
@@ -822,7 +848,14 @@ main() {
 
   case "$cmd" in
     install)  cmd_install "$@" ;;
-    sync)     cmd_sync ;;
+    sync)
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          -f|--force) FORCE_SYNC=true; shift ;;
+          *) shift ;;
+        esac
+      done
+      cmd_sync ;;
     update)   cmd_update ;;
     list)     cmd_list "$@" ;;
     add)      cmd_add "$@" ;;
