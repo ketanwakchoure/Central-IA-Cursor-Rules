@@ -670,27 +670,12 @@ cmd_propose() {
       *)
         if [[ -f "$1" ]]; then
           file="$1"
-        elif [[ "$1" == */* && "$1" == /* ]] || [[ "$1" == *.mdc || "$1" == *SKILL.md || "$1" == */*.md ]]; then
-          # Looks like a file path but doesn't exist
-          if [[ "$1" == */* && ! -f "$1" && -z "$rule_name" ]]; then
-            # Could be a file path OR a rule ID like safety/no-placeholder
-            # Check if it matches a library item first
-            local _check=""
-            _check=$(find "$LIBRARY_PATH/rules" -name "$(basename "$1" .mdc).mdc" 2>/dev/null | head -1)
-            if [[ -z "$_check" ]]; then
-              _check=$(find "$LIBRARY_PATH/skills" -name "SKILL.md" -path "*$(basename "$1")*" 2>/dev/null | head -1)
-            fi
-            if [[ -n "$_check" ]]; then
-              rule_name="$1"
-            else
-              err "File not found: $1"
-              exit 1
-            fi
-          elif [[ -z "$rule_name" ]]; then
-            rule_name="$1"
-          else
-            message="$1"
-          fi
+        elif [[ "$1" == *.mdc ]] && [[ -f ".cursor/rules/$1" ]]; then
+          file=".cursor/rules/$1"
+        elif [[ "$1" == "SKILL.md" || "$1" == */SKILL.md ]] && [[ -f ".cursor/skills/$1" ]]; then
+          file=".cursor/skills/$1"
+        elif [[ "$1" == *.md ]] && [[ -f ".cursor/agents/$1" ]]; then
+          file=".cursor/agents/$1"
         elif [[ -z "$rule_name" ]]; then
           rule_name="$1"
         else
