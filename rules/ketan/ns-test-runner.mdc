@@ -1,0 +1,94 @@
+---
+description: How to run the NetSuite CLI test runner (ns-test) for legacy SuiteScript tests, including closure rebuild, sync.js fixes, and common failure patterns.
+alwaysApply: false
+---
+
+# NetSuite Test Runner (`ns-test`)
+
+## Running Tests
+
+```bash
+# Run a specific test file (syncs to NS, reuses existing test record)
+node tools/test-runner/bin/ns-test.js --file <path/to/test-file.js>
+
+# ALWAYS use --force-new when the test record was previously cleaned up
+# (TraceRemover removes the record at the end of each run)
+node tools/test-runner/bin/ns-test.js --file <path/to/test-file.js> --force-new
+
+# Verbose mode - shows individual test failures with real error messages
+node tools/test-runner/bin/ns-test.js --file <path/to/test-file.js> --force-new --verbose
+
+# Sync only (upload file without running)
+node tools/test-runner/bin/ns-test.js --file <path/to/test-file.js> --sync-only
+```
+
+## Always Use `--force-new`
+
+The test in fame framework's `TraceRemover` deletes the test configuration record at the end of every run:
+```
+[AUDIT] CeligoTest.TraceRemover: removed trace "TestCase"#Shopify_XYZ_502
+```
+
+On the NEXT run without `--force-new`, the existing test record (stale) is reused with stale `libFileIds` → all 106 tests fail with the infinite recursion error in `Celigo.build.celigotest.closure.js`.
+
+**Use `--force-new` every time** to create a fresh record with the current closure.
+
+## Rebuilding the Closure (Shopify)
+
+The test runner uploads `build/shopify/Celigo_ShopifyConnector.closure.js` as the library. Rebuild it whenever source files change:
+
+```bash
+# From the build/shopify directory:
+touch shopify/hooks/Celigo.products.shopify.hooks.DepositImportGraphQL.js  # force rebuild
+cd build/shopify && ant -buildfile build-Celigo_ShopifyConnector.xml
+```
+
+The properties file at `build/shopify/Celigo_ShopifyConnector.properties` lists all 31 source files compiled into the closure, including `DepositImportGraphQL.js`.
+
+## Required `sync.js` Patch (NOT COMMITTED)
+
+`tools/test-runner/src/sync.js` has a bug: both the UPDATE path (`if (matchingTest)`) and the CREATE path (`else`) fall back to the stale **bundle** closure instead of using the locally built one. This causes all tests to fail with "is not a function" errors.
+
+**Reapply this patch to both paths** whenever `sync.js` is reset:
+
+In `syncFile()`, find the block `if (localFile.closureInfo)` in BOTH the update path (~line 435) and create path (~line 536). Replace the direct `searchFileByName` call with:
+
+```javascript
+// Try uploading local closure first (uses freshly built closure over stale bundle)
+const repoRoot = localFile.absolutePath.substring(0, localFile.absolutePath.indexOf('testing' + path.sep));
+const localClosurePath = path.join(repoRoot, localFile.closureInfo.localPath);
+let closureUploaded = false;
+if (fs.existsSync(localClosurePath)) {
+  try {
+    const closureContent = fs.readFileSync(localClosurePath, 'utf8');
+    const closureUpload = await api.uploadFile(
+      localFile.closureInfo.nsFileName,
+      NS_CLOSURE_FOLDER,   // 'SuiteScripts/Celigo.products/'
+      closureContent
+    );
+    if (closureUpload && closureUpload.fileId) {
+      libFileIds.push(closureUpload.fileId);
+      closureUploaded = true;
+    }
+  } catch (e) { /* fall through to bundle */ }
+}
+if (!closureUploaded) {
+  // original searchFileByName(bundleFolder) fallback code here
+}
+```
+
+## Common Failure Patterns
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| All 106 tests fail, infinite recursion in `celigotest.closure.js` | Stale test record reused without `--force-new` | Add `--force-new` |
+| `"extractNumericId" is not defined` / `buildAccountMap is not a function` | `sync.js` using bundle closure instead of local build | Reapply sync.js patch above |
+| `org.mozilla.javascript.Undefined is not a function` on all tests | Nested `function` declaration inside another function (invalid in Rhino) | Use `var fn = function` instead of `function fn` |
+| Compilation skipped by `ant` | Source file timestamp not newer than last build | `touch` the source file before running `ant` |
+
+## Rhino Compatibility (SuiteScript 1.0)
+
+NetSuite runs SuiteScript 1.0 on Mozilla Rhino. Key restrictions:
+- **No nested function declarations**: use `var fn = function() {}` not `function fn() {}` inside another function
+- Strict `=== false` checks (not `!= true`) for boolean fields
+- No ES6+ syntax (no arrow functions, template literals, `let`/`const`, etc.)
