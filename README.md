@@ -43,7 +43,7 @@ git clone https://github.com/ketanwakchoure/Central-IA-Cursor-Rules.git ~/.curso
 alias cursor-rules="$HOME/.cursor-rules-library/cli.sh"
 ```
 
-### 3. Install a profile
+### 3. Install a profile or skill
 
 ```bash
 # See available profiles
@@ -51,6 +51,10 @@ cursor-rules profile
 
 # Install one (creates .cursor-rules.json + syncs all rules)
 cursor-rules add profile backend
+
+# Or add a single skill (symlinks into .cursor/skills/)
+cursor-rules list skills
+cursor-rules add skill rest-api-ia-zephyr-pr-review
 ```
 
 ### 4. Stay updated
@@ -134,7 +138,7 @@ cursor-rules list profiles                             # all profiles
 cursor-rules profile backend                           # preview backend profile
 cursor-rules add profile backend                       # install backend profile
 cursor-rules add workflows/pr-review                   # add a single rule
-cursor-rules add skill deploy                          # add a skill
+cursor-rules add skill rest-api-ia-zephyr-pr-review    # add a skill (e.g. rest-api-ia PR review)
 cursor-rules remove profile backend                    # remove backend profile
 cursor-rules sync                                      # sync (skip local files)
 cursor-rules sync -f                                   # force-replace local files
@@ -153,7 +157,9 @@ cursor-rules doctor                                    # health check
   "rules": [
     "workflows/pr-review"
   ],
-  "skills": [],
+  "skills": [
+    "rest-api-ia-zephyr-pr-review"
+  ],
   "agents": []
 }
 ```
@@ -212,6 +218,40 @@ cursor-rules list
 | `coding-standards` | Language and framework conventions |
 | `safety` | Guardrails: anti-hallucination, security, no-placeholder |
 | `integrations` | Tool-specific rules (MCP, Jira, GitHub) |
+
+## Available Skills
+
+See [CATALOG.md](CATALOG.md) for the full list, or run:
+
+```bash
+cursor-rules list skills
+```
+
+| Skill | Description |
+|-------|-------------|
+| `rest-api-ia-zephyr-pr-review` | Review `celigo/rest-api-ia` Shopify-NetSuite IA testcase PRs against Zephyr Scale (`PRE-<ID>`), connector settings, payloads, and expected responses. Uses `gh` and Zephyr MCP (`getTestCase`, `getTestCaseTestSteps`). |
+
+### Workspace example: `rest-api-ia`
+
+In the [rest-api-ia](https://github.com/celigo/rest-api-ia) repo root:
+
+```bash
+cursor-rules add skill rest-api-ia-zephyr-pr-review
+```
+
+This updates `.cursor-rules.json` and symlinks `.cursor/skills/rest-api-ia-zephyr-pr-review/SKILL.md`. Commit `.cursor-rules.json`; keep symlinked skills gitignored (see [.gitignore Strategy](#gitignore-strategy)).
+
+Minimal config:
+
+```json
+{
+  "library": "~/.cursor-rules-library",
+  "profiles": [],
+  "rules": [],
+  "skills": ["rest-api-ia-zephyr-pr-review"],
+  "agents": []
+}
+```
 
 ## Contributing
 
@@ -280,6 +320,8 @@ Central-IA-Cursor-Rules/
 │   ├── safety/
 │   └── integrations/
 ├── skills/
+│   └── rest-api-ia-zephyr-pr-review/
+│       └── SKILL.md
 └── agents/
 ```
 
