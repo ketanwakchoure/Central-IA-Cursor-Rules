@@ -9,7 +9,7 @@ Use this skill for reviewing `celigo/rest-api-ia` PRs that add or update Shopify
 
 ## Guardrails
 
-- Do not post GitHub comments, approve, or request changes unless the user explicitly asks.
+- Do not post GitHub comments, approved, or request changes unless the user explicitly asks...
 - Prefer `gh` CLI for PR metadata, changed files, diffs, checks, and reviews.
 - Before calling Zephyr MCP tools, read the tool descriptors for `getTestCase` and `getTestCaseTestSteps`.
 - Treat testcase names as Zephyr keys using `PRE-<filename>`, for example `T24669.json` -> `PRE-T24669`.
