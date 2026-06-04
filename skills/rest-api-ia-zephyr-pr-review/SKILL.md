@@ -273,7 +273,7 @@ Flag exchange order imports that run the flow without first fulfilling the order
 
 ## Item Fixture Checks
 
-Read `rest-api-ia/env/dev.env` and compare `DEFAULTS.PRODUCTS.<n>.CLASS` with the Zephyr item type:
+Read `env/dev.env` (repo root) and compare `DEFAULTS.PRODUCTS.<n>.CLASS` with the Zephyr item type:
 
 - Normal item -> `INVENTORY`
 - Lot item -> `LOT NUMBERED INVENTORY`
