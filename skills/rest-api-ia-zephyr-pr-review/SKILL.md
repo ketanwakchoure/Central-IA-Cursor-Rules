@@ -64,14 +64,19 @@ Each entry in `interactions` follows this shape:
 ```jsonc
 {
   "test": "T<ID><InteractionName>",            // e.g. T24668OrderImport
-  "test_title": "test1T<ID><InteractionName>",  // e.g. test1T24668OrderImport
+  "test_title": "T<ID><InteractionName>",       // NO prefix — same as `test`, e.g. T24668OrderImport
   "pre_request": [ /* setup requests, in order */ ],
   "request": { "method": "POST", "path": "..." },  // the asserting call
   "response": { /* validation block */ }
 }
 ```
 
-- `test` should be `T<ID>` + a PascalCase interaction name; `test_title` should be `test1` + `test`.
+- `test` should be `T<ID>` + a PascalCase interaction name; `test_title` must equal `test` exactly.
+- **`test_title` must have NO prefix.** It should be identical to `test` (e.g. `T24668OrderImport`), with
+  no `test1`, `test23`, `testN`, or any other token in front of `T<ID>`. Flag ANY prefix on `test_title`
+  — including `test1` — and ask the owner to remove it so `test_title` is prefix-free and matches `test`.
+  Prefix tokens (especially tag-like ones such as `test23...`) are often reused as the suite `TAG` and
+  do not belong in `test_title`.
 - Every interaction must have a `request` and a `response`.
 - `pre_request` is an array of `{ "request": {...} }` (and optionally `{ "request": {...}, "response": {...} }`) objects, ordered as the flow executes.
 
@@ -204,7 +209,9 @@ whether the framework actually implements it (common AI-generated hallucination)
 ### Format-check findings to raise
 
 - Missing `suite`/`suite_title`/`storeName`/`test`/`test_title`/`request`/`response` keys.
-- `test_title` not equal to `test1` + `test`, or `test` not prefixed with the testcase ID.
+- `test_title` not equal to `test` (they must be identical), or `test` not prefixed with the testcase ID.
+- `test_title` carries ANY prefix before `T<ID>` (e.g. `test1...`, `test23...`, `testN...`, or any custom
+  token used as the run tag) — flag and ask to remove the prefix so `test_title` matches `test` exactly.
 - `storeName` / `CONNECTIONS.SHOPIFY_STORE_*` mismatched with the tax mode.
 - Unknown `dataValidationMethod`, `dataCreationMethod`, or `settingsMethod` (possible hallucination).
 - Payload/response path that doesn't follow the `/test-data/E2E_Native_Exchanges/{payloads,responses}/T<ID>/...` convention or whose file is missing.
@@ -281,6 +288,26 @@ Read `rest-api-ia/env/dev.env` and compare `DEFAULTS.PRODUCTS.<n>.CLASS` with th
 - Kit item scenarios must use the testcase's established kit/product references, not normal inventory items unless the test intentionally maps kits differently.
 
 If the PR references new env entries not present locally, do not assume mismatch. Report that the local env is missing the entry and ask the owner to confirm it resolves and has the correct class.
+
+### Match item TYPE, not quantity or amount
+
+Validate only that the correct **item type / class** is used (Normal vs Lot vs Serialized vs Kit) and
+that the right product reference (`DEFAULTS.PRODUCTS.<n>`) is wired. Do **NOT** flag the testcase
+for using quantities or amounts (price, line/cart discount value, shipping, tax, order total) that
+differ from the numbers documented in the Zephyr test data.
+
+Reasons:
+
+- Prices, discounts, shipping, and tax are driven by the Shopify product/store configuration and the
+  order created at runtime — the automation cannot force them to match the human-written Zephyr
+  numbers, and the framework reconciles totals via the variance fields (which must be `"0"`).
+- The Zephyr "Test Data" amounts/quantities are illustrative; the automation legitimately uses its
+  own standard fixtures.
+
+So: a return/exchange/order quantity or any amount that diverges from Zephyr is **not a finding** as
+long as the correct item type is used, the flow passes, and variance fields are `"0"`. Only raise a
+quantity issue when it breaks **internal** consistency of the test itself (see the lot/serial
+internal-consistency checks below), not when it merely differs from Zephyr.
 
 ## Lot / Serialized Item Handling (Reference: T24693 lot, T24708 serialized)
 
@@ -360,7 +387,9 @@ matching the unique serials seeded in step 1.
   or serialized test uses one entry with `assignQuantity > 1` (should be one entry per unit, qty 1).
 - Lot/serial numbers seeded in the adjustment don't match the `serialnumber` values referenced in the
   fulfillment / item-receipt payloads.
-- `assignQuantity` / `qty` totals don't match the ordered quantity.
+- `assignQuantity` / `qty` totals are internally inconsistent — i.e. they don't match the quantity the
+  testcase itself orders/receives in its own payloads. (This is an internal-consistency check, NOT a
+  comparison against the Zephyr documented quantity — see "Match item TYPE, not quantity or amount".)
 - Exchange/downsell leg of a serialized test missing its own `adjustNSInventory` stock seed.
 - Product SKU index points at a non-lot/non-serial class in `dev.env` (cross-check Item Fixture Checks).
 
@@ -371,6 +400,34 @@ Apply this project convention when reviewing Shopify-NetSuite E2E testcase PRs:
 - Tax-exclusive scenarios should use `store7` and `CONNECTIONS.SHOPIFY_STORE_7`.
 - Tax-inclusive scenarios should use `store8` and `CONNECTIONS.SHOPIFY_STORE_8`.
 - If the PR uses another store for one of these tax modes, flag it as a configuration mismatch unless the PR explicitly documents a validated exception.
+
+## Tax Level → Folder & Per-line Setting (from Zephyr)
+
+Judge the testcase folder AND the per-line-tax setting from the **tax level** the Zephyr
+testcase describes (line-level vs body/order-level tax), NOT from the shipping mode.
+
+Read the Zephyr testcase (name, preconditions, expected result) and determine whether tax is
+applied **per line / at line level** or **at the body / order level**:
+
+- Zephyr says **"Per-line tax enabled"**, **"line-level tax"**, or **"tax calculated at item line level"**:
+  - Folder: `testcases/E2E_Native_Exchanges/` (and `test-data/E2E_Native_Exchanges/...`).
+  - Setting: `"Per-line taxes on transaction enabled in NetSuite": true`.
+- Zephyr says **"Per-line tax disabled"**, **"body-level tax"**, or **"tax calculated at order/transaction level"**:
+  - Folder: `testcases/E2E_Native_Exchanges_BodyLevel/` (and `test-data/E2E_Native_Exchanges_BodyLevel/...`).
+  - Setting: `"Per-line taxes on transaction enabled in NetSuite": false`.
+
+Findings to raise:
+
+- `"Per-line taxes on transaction enabled in NetSuite"` value does not match the Zephyr tax
+  level (e.g. Zephyr says per-line enabled but the setting is `false`, or vice versa).
+- Folder placement does not match the Zephyr tax level (e.g. a per-line-enabled / line-level-tax
+  test placed under `E2E_Native_Exchanges_BodyLevel`, or a per-line-disabled / body-level-tax
+  test placed under `E2E_Native_Exchanges`).
+- The per-line setting and the folder disagree with each other (one says line-level, the other
+  says body-level).
+
+Note: do not use the shipping mode (shipping on body vs shipping as line) to decide the
+`_BodyLevel` folder — the `_BodyLevel` suffix tracks **tax** level, not shipping.
 
 ## Validation Checks
 
@@ -383,11 +440,12 @@ For each testcase:
   - Some passing Native Exchange cases intentionally use NetSuite fulfillment export. If so, ask for confirmation rather than marking as a hard failure.
 - Confirm final interaction validation method. Exchange fulfillment imports usually use `verifyFulfillmentImportDataFromNetsuite` through NetSuite proxy when asserting NetSuite fulfillment.
 - Prefer real record validations over only `/jobs/latest` flow checks when Zephyr expects invoice, refund, exchange order, or fulfillment record validation.
-- For OrderImport expected responses, check for all four eTail variance fields:
+- For the **first `OrderImport` expected response only**, check for all four eTail variance fields:
   - `eTail Order Total Variance`
   - `eTail Discount Total Variance`
   - `eTail Tax Total Variance`
   - `eTail Ship Total Variance`
+- Do NOT flag missing variance fields on `ExchangeOrderImport` / `SyncExchangeOrder` / `VerifyAutobilling` / refund / exchange-fulfillment expected responses. Variance is asserted on the initial order import only; later interactions are not expected to validate variance and their absence there is not a finding.
 - Check the expected response asserts the scenario's core behavior: item line, cart discount, line discount, shipping line/body, tax substitute/tax handling, store, currency, and relevant totals.
 - For lot/serialized tests, check whether lot/serial numbers are asserted where the framework supports it, not only created in setup payloads.
 
@@ -399,8 +457,7 @@ For each testcase:
 - `Coupon Code / Promo Code` is suspicious unless proven valid; existing payloads commonly use `Coupon Code`.
 - Expected response file exists but testcase only validates flow job status.
 - Exchange shipment payload exists but is never wired before exchange fulfillment.
-- Return quantity in payload differs from Zephyr expected return quantity.
-- OrderImport expected response has only one variance field instead of all four.
+- First `OrderImport` expected response has only one variance field instead of all four. (Variance is not validated on later interactions like `ExchangeOrderImport`, so do not flag those.)
 
 ## Suggested Output
 
