@@ -19,6 +19,9 @@ Auto-generated index of all shared rules, skills, and agents.
 
 ## Skills
 
+### ia-dev-workflow
+
+- **ia-dev-workflow** -- Develop, debug, deploy, and live-verify Celigo Integration App (IA) flows against integrator.io staging plus a backend (NetSuite, Shopify, etc.). Covers local connector server + ngrok bring-up, running/polling flows via the integrator.io API, saving IA settings (persistSettings), editing platform script records, applying installer-config changes via add-on reinstall, inspecting backend records (SuiteQL / REST proxy), rebuilding and deploying SuiteScript bundles, diagnosing governance timeouts and silent data loss, and building a live verification harness. Use when developing or debugging any IA epic on staging, or when the user mentions "run the flow", "check NetSuite records", "SuiteQL", "ngrok"/"tunnel", "persistSettings", "reinstall the add-on", "platform script", "rebuild the closure/bundle", "script execution time exceeded", "invalid hook function", or asks to verify a flow end-to-end.
 ### ia-release-confluence-checklist
 
 - **ia-release-confluence-checklist** -- Prepare/update Celigo IA connector Confluence production-ready checklists for a release (e.g. 2026.8.1). Use when the user asks to update IA release checklists, Confluence PE checklist pages, master tag/Jenkins links, base image Qualys scan, QA WIP, or DevOps sign-off for shopify/amazon/walmart/etc connectors.
