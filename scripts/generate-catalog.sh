@@ -28,6 +28,14 @@ for section in rules skills agents; do
   found=0
   current_category=""
 
+  # Skills may include supporting docs (reference.md, troubleshooting.md);
+  # only SKILL.md is the catalog entrypoint.
+  if [[ "$section" == "skills" ]]; then
+    find_expr=( -type f -name 'SKILL.md' )
+  else
+    find_expr=( -type f \( -name '*.mdc' -o -name '*.md' \) ! -name '.gitkeep' ! -name '*.template' )
+  fi
+
   while IFS= read -r file; do
     [[ -z "$file" ]] && continue
 
@@ -59,7 +67,7 @@ for section in rules skills agents; do
     printf -- "- **%s** -- %s\n" "$name" "$desc" >> "$OUTPUT"
     ((found++))
 
-  done < <(find "$base" -type f \( -name '*.mdc' -o -name 'SKILL.md' -o -name '*.md' \) ! -name '.gitkeep' ! -name '*.template' 2>/dev/null | sort)
+  done < <(find "$base" "${find_expr[@]}" 2>/dev/null | sort)
 
   if [[ $found -gt 0 ]]; then
     echo "" >> "$OUTPUT"
