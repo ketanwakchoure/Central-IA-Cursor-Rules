@@ -8,6 +8,9 @@
     "workflows/build-workflow",
     "workflows/test-runner"
   ],
-  "skills": [],
+  "skills": [
+    "ia-release-confluence-checklist",
+    "rest-api-ia-zephyr-pr-review"
+  ],
   "agents": []
 }
