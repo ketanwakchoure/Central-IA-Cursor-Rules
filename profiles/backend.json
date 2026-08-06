@@ -8,7 +8,8 @@
     "workflows/test-runner"
   ],
   "skills": [
-    "ia-release-confluence-checklist"
+    "ia-release-confluence-checklist",
+    "ia-dev-workflow"
   ],
   "agents": []
 }
