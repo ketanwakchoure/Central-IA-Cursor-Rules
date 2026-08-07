@@ -25,6 +25,9 @@ Auto-generated index of all shared rules, skills, and agents.
 ### ia-release-confluence-checklist
 
 - **ia-release-confluence-checklist** -- Prepare/update Celigo IA connector Confluence production-ready checklists for a release (e.g. 2026.8.1). Use when the user asks to update IA release checklists, Confluence PE checklist pages, master tag/Jenkins links, base image Qualys scan, QA WIP, or DevOps sign-off for shopify/amazon/walmart/etc connectors.
+### ia-release-ssp-deployment-tasks
+
+- **ia-release-ssp-deployment-tasks** -- Create and manage Celigo DevOps SSP (Release Management) IA connector deployment_ms canary tasks for a release (e.g. IA-2026.8.1). Use when the user asks to create SSP release tasks, deployment_ms tasks, canary deployments for IA connectors, sync change_owner from DEVOPS Jira checklists, or rename SSP tasks to deployment_ms - service-name.
 ### rest-api-ia-zephyr-pr-review
 
 - **rest-api-ia-zephyr-pr-review** -- Review celigo/rest-api-ia Shopify-NetSuite IA testcase PRs against Zephyr Scale requirements, connector settings, item fixtures, payload format, and expected-response validation. Use when the user asks to review rest-api-ia PRs, AI generated testcases, E2E Native Exchanges, Zephyr testcase IDs like PRE-T24669, or Shopify-NetSuite IA settings.
