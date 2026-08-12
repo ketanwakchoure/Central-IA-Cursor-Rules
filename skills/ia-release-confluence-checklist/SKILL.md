@@ -45,14 +45,32 @@ Skip non-IA pages (file-adaptor, MS checklists, IO overview) unless the user ask
 
 ## Guardrails
 
+- **Links only. No prose.** Comments cells hold the image name and bare URLs, nothing else. Do
+  not add explanatory sentences, scan dates, severity summaries, or ticket references — no other
+  IA checklist has them. The only non-link text in the table is the existing
+  `Jenkins:` / `Release tag:` / `Test Cycle:` / `Test Report:` labels. **Open a sibling
+  connector's page for the same release and match it before writing.**
+- Keep the Scrum status cells to the gated numbers only (`Critical = 0, High = 0`). Do not append
+  moderate/low counts.
 - **Do not invent Critical/High = 0.**
   - npm audit: use end-of-log dashboard curl fields `auditCritical` / `auditHigh` only.
-  - Container Qualys: console usually does **not** print severity totals. Gate SUCCESS ≠ documented count of 0. Prefer reading Qualys report / `qualys_images_summary.json` when available; otherwise say "unverifiable" and link the report.
-- Jenkins HTML publisher paths (`/Audit_20Report/`, `/qualys_report_for_*.html/`) often need VPN/login. Prefer citing **console log** evidence for metrics when HTML is inaccessible.
+  - Container Qualys: console does **not** print severity totals. Gate SUCCESS ≠ a documented 0.
+    Leave the existing status cell untouched and **report the gap to the user** — do not write a
+    caveat onto the page, it breaks house style.
+- **Ignore intermediate `npm audit` console lines** such as
+  `79 vulnerabilities (3 low, 67 moderate, 7 high, 2 critical)`. Those are dev-inclusive runs from
+  an earlier stage, not the gate. Only the dashboard JSON counts.
+- Jenkins HTML publisher paths (`/Audit_20Report/`, `/qualys_report_for_*.html/`) need session
+  login; they return **404 under API/Basic auth even when valid**. Never treat a 404 as proof the
+  report is missing — reuse the established URL pattern with the new build number.
 - S3 presigned report zips expire (~36h). Do not treat expired presigns as the durable link.
 - Preserve intentional N/A automation comments (ebay/square/hightech) when marking QA WIP.
-- Uncheck **all** DevOps "Accepted" boxes including **OVERALL DEVOPS SIGN-OFF** when preparing a new release page (do not leave May/prior release Accepted state).
-- Prefer `contentFormat: "html"` for `updateConfluencePage` so task-list checkboxes round-trip. Markdown often escapes checkbox HTML.
+- Uncheck **all** DevOps "Accepted" boxes including **OVERALL DEVOPS SIGN-OFF** when preparing a
+  new release page (do not leave a prior release's Accepted state).
+- Keep a Test Cycle link that belongs to **this** release; only clear cycles from earlier releases.
+- Prefer `contentFormat: "html"` for `updateConfluencePage` so task-list checkboxes round-trip.
+  Markdown often escapes checkbox HTML. Preserve every `data-local-id` attribute — apply targeted
+  string replacements to the fetched HTML rather than rewriting the table.
 
 ## Workflow
 
@@ -71,32 +89,43 @@ For each service:
 
 1. `getBuild` on `IA/POST-COMMIT/<service>` (omit buildNumber → last build).
 2. Require `result == SUCCESS` and `displayName` like `master_#N`.
-3. From console (`searchBuildLog`), extract:
-   - Release tag: `ml-*.*.*.N.0` (docker tag / GitHub releases create)
-   - Container Qualys short hash: `qualys_scan_target:<12hex>` → report path `.../<N>/qualys_report_for_<12hex>.html/`
-   - Dashboard metrics JSON near end of log:
-     - `statementsCoverage`, `auditCritical`, `auditHigh`, `sonarDuplicatedLines`, `sonarBugs`, `sonarCodeSmells`, `sonarVulnerabilities`, `sonarSecurityHotspots`
+3. One `searchBuildLog` call gets almost everything — the dashboard payload is a single line:
+
+```text
+pattern: auditCritical|statementsCoverage|sonarBugs|qualys_scan_target
+useRegex: true, contextLines: 2
+```
+
+   That one line carries `statementsCoverage`, `auditCritical`, `auditHigh`, `auditModerate`,
+   `auditLow`, `sonarBugs`, `sonarVulnerabilities`, `sonarSecurityHotspots`, `sonarCodeSmells`,
+   `sonarDuplicatedLines`, plus `prNumber` — use `prNumber` to confirm the build is the change you
+   expect. The `qualys_scan_target:<12hex>` match gives the container report path
+   `.../<N>/qualys_report_for_<12hex>.html/`.
 4. GitHub release URL: `https://github.com/celigo/<service>/releases/tag/<tag>`
 
 ### 3. Resolve base image Qualys scan
 
 1. Read service `Dockerfile` `FROM public.ecr.aws/...` (prefer **build log** `FROM` over stale local clones if they disagree).
 2. Common IA image (as of 2026.8): `public.ecr.aws/c4g3p9t9/node-bookworm-slim:22.11.0-10.9.0`
-3. Find latest SUCCESS build on `SECURITY/SCANS/BASE_IMAGE_SCAN/base-image-scan` whose `displayName` matches the image (e.g. `node-bookworm-slim_22.11.0-10.9.0_#8035`).
-4. From that build log, get published report name:
+3. `base-image-scan` cycles through many images, so its **last build is almost never yours**.
+   List builds with `getJob tree: builds[number,displayName,result,timestamp]{0,120}` and pick the
+   newest SUCCESS whose `displayName` matches the image.
+4. The `<12hex>` in the report name is the **image id**, visible in the scan log's
+   `docker inspect`/digest line and in the connector build's `docker image ls` output.
    - Newer: `Qualys_20Report_20For_20<12hex>/`
    - Older: `qualys_report_for_<12hex>.html/`
-5. Also capture SEV-4 / SEV-5 counts if logged (`No vulnerabilities found`, policy check lines).
+5. This scan is **shared by every IA connector on the same base image** — one refreshed scan
+   number applies to all their pages. Checklists routinely carry a stale one from a prior release.
 
 ### 4. Update page content
 
 Rewrite the checklist table (HTML) with:
 
-| Row | Scrum status | DevOps Accepted | Comments |
+| Row | Scrum status | DevOps Accepted | Comments (links only) |
 |---|---|---|---|
 | Base Images | Completed Successfully | unchecked | image name + latest base-image-scan Qualys URL |
-| Container Scan | Critical/High from Qualys if known; else keep text but do not fake zeros | unchecked | POST-COMMIT Qualys URL for build N |
-| npm audit | `Critical = X, High = Y` from dashboard | unchecked | Audit report URL **and/or** console deep-link note |
+| Container Scan | leave as-is; do not fake zeros | unchecked | POST-COMMIT Qualys URL for build N |
+| npm audit | `Critical = X, High = Y` from dashboard | unchecked | Audit report URL for build N |
 | CI Code Coverage | `statementsCoverage`% | unchecked | Combined coverage URL for build N |
 | SonarQube | bugs/vulns/hotspots/smells/dup from dashboard | unchecked | Sonar dashboard link |
 | Communication | Not applicable (checked) | unchecked | leave empty |
@@ -114,13 +143,21 @@ Update to latest master tag <tag> / Jenkins #<N>; QA WIP; uncheck DevOps; fix ba
 
 ### 5. Verify after write
 
-Re-fetch HTML and confirm:
+Re-fetch and confirm:
 
-- Release tag / Jenkins build N present
-- Base scan URL is not a prior-release leftover (e.g. `#6571` from May)
+- Release tag / Jenkins build N present, and **no stale build number survives** anywhere
+- Base scan URL is not a prior-release leftover
 - No `checked> Accepted` remains under DevOps column
 - QA Functional has WIP checked
 - Magento (and any other non-zero audit) shows accurate High/Critical counts
+- No prose crept into a Comments cell
+
+## Jenkins API gotchas
+
+- URL-encode brackets in `tree=` (`%5B` / `%5D`) or Jenkins returns HTML and JSON parsing fails.
+- The MCP `searchBuildLog` parameter is `pattern` (with `useRegex`), not `searchPattern`.
+- `htmlpublisher` report actions do not appear in `api/json`, so the report URL cannot be
+  discovered programmatically — derive it from the hash in the console log.
 
 ### 6. Report to user
 
