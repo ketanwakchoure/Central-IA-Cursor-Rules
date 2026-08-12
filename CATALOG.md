@@ -25,6 +25,9 @@ Auto-generated index of all shared rules, skills, and agents.
 ### ia-release-confluence-checklist
 
 - **ia-release-confluence-checklist** -- Prepare/update Celigo IA connector Confluence production-ready checklists for a release (e.g. 2026.8.1). Use when the user asks to update IA release checklists, Confluence PE checklist pages, master tag/Jenkins links, base image Qualys scan, QA WIP, or DevOps sign-off for shopify/amazon/walmart/etc connectors.
+### ia-release-ssp-deployment-tasks
+
+- **ia-release-ssp-deployment-tasks** -- Create and manage Celigo DevOps SSP (Release Management) IA connector deployment_ms canary tasks for a release (e.g. IA-2026.8.1). Use when the user asks to create SSP release tasks, deployment_ms tasks, canary deployments for IA connectors, sync change_owner from DEVOPS Jira checklists, or rename SSP tasks to deployment_ms - service-name.
 ### ms-deployment-request
 
 - **ms-deployment-request** -- Submit a microservice deployment request via the Jenkins MS_DEPLOYMENT_REQUEST job for IAQA, QA, QA-PROD, STAGING, PLATFORM1-5 or COREDEV. Use when the user asks to deploy a connector or microservice, bump a tag in an environment, fill the MS deployment form, raise a deployment request, or mentions jenkins.aut.staging.integrator.io.
