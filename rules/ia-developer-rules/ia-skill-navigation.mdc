@@ -1,0 +1,39 @@
+---
+description: How to navigate the ia-dev-workflow skill to find exactly what you need
+alwaysApply: true
+---
+
+# Navigating the ia-dev-workflow Skill
+
+The skill lives at `~/.cursor/skills/ia-dev-workflow/` and has exactly three layers.
+Do NOT read all three files end-to-end — route by need:
+
+| Layer | File | Read it when |
+|---|---|---|
+| Decision layer | `SKILL.md` | Always start here. Steps 1–9 = workflow order; each step links to detail sections. |
+| Command layer | `reference.md` | You know WHAT to do and need the exact command/API payload. |
+| Diagnosis layer | `troubleshooting.md` | Something failed and you need signature → cause → fix. |
+
+## Routing table (symptom/need → exact section)
+
+- Environment setup / server / ngrok / stack: `SKILL.md` Step 1 → `reference.md` §1
+  (§1.3 = scripted health check + stack-drift detection)
+- Run a flow, poll jobs, per-bubble results, retry errors: Step 2 → `reference.md` §2.1–2.2
+- Change settings (persistSettings), platform scripts, locked fields/reinstall: Step 3 →
+  `reference.md` §2.3–2.5
+- Inspect NetSuite/Shopify records, SuiteQL, saved searches: Step 4 → `reference.md` §3
+- Data disappears between bubbles / timeouts / "random" duplicates: Step 5 →
+  `troubleshooting.md` (debug logs, governance, rerun probe)
+- SuiteScript / bundle rebuild + deploy: Step 6 → `reference.md` §4
+- End-to-end verification harness + sandbox cleanup: Step 7 →
+  `troubleshooting.md` § Cleanup checklist
+- Fresh tile install (license, TBA, DIY Shopify token): Step 8 → `reference.md` §2.7
+- First order won't sync on a fresh tile: Step 9 → `reference.md` §2.8
+- Unknown error message: grep `troubleshooting.md` § "Failure signature → cause" for the
+  literal error text FIRST, before diagnosing from scratch.
+
+## Search technique
+
+Use targeted lookup, not full reads: `rg -in '<error text or keyword>'
+~/.cursor/skills/ia-dev-workflow/` and then read only the matching section. Section
+anchors in SKILL.md links (e.g. `reference.md#28-...`) are stable — follow them directly.

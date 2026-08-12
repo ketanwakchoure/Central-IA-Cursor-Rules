@@ -1,0 +1,44 @@
+---
+description: Mandatory use and live maintenance of the ia-dev-workflow skill for issue reproduction and epic verification
+alwaysApply: true
+---
+
+# IA Developer Tools — Mandatory Reference (ia-dev-workflow skill)
+
+The skill at `~/.cursor/skills/ia-dev-workflow/SKILL.md` is the operational playbook for
+setting up and driving the live IA environment (integrator.io staging + local connector
+server + NetSuite/Shopify backend).
+
+## When you MUST read it first
+
+Read the skill BEFORE attempting any of these — do not improvise environment setup:
+
+- **Reproducing a reported issue/bug** in this connector (or any IA epic) that requires a
+  running environment, a flow run, or backend record inspection.
+- **Verifying changes made by an epic** — after code/config/schema/hook changes, when you
+  need to prove behavior end-to-end (run flow → inspect backend → assert).
+- Any task mentioning: run the flow, ngrok/tunnel, persistSettings, reinstall the add-on,
+  SuiteQL, platform script, rebuild the closure/bundle, fresh tile install, or
+  "script execution time exceeded" / "invalid hook function" errors.
+
+Follow the skill's steps in order (triple health check first). If a symptom matches a
+documented failure signature, apply the documented fix before inventing a new diagnosis.
+
+## Live-skill contract (MANDATORY after every session)
+
+The skill is a living document. At the end of any repro/verification session, ask:
+**"Did I hit a situation the skill did not cover, or where the skill was wrong/stale?"**
+
+If yes, you MUST update the skill in the same session:
+
+- **New failure signature + cause** → add a row to `troubleshooting.md` § "Failure
+  signature → cause", and a technique write-up if the diagnosis was non-obvious.
+- **New/changed command, API shape, or install step** → add/update the numbered section in
+  `reference.md`; keep commands copy-pasteable with `$BASE`/`$TOK`-style variables.
+- **New workflow stage or platform behavior** → extend the relevant Step in `SKILL.md`
+  (keep SKILL.md a compact decision layer; push detail into the two sub-docs and link it).
+- Never write tokens, account IDs, customer data, or any credential into skill files —
+  reference `.env` keys instead.
+
+Do not silently carry the learning only in the chat: if it isn't written into the skill,
+it is lost. Tell the user what you added and where.
