@@ -8,6 +8,22 @@ description: Develop, debug, deploy, and live-verify Celigo Integration App (IA)
 Operational playbook for any epic spanning integrator.io (staging), a local connector server,
 and a backend (NetSuite/Shopify/etc). Battle-tested across a full payout-migration epic.
 
+## How to use this skill (read this first)
+
+Three layers — route by need instead of reading everything:
+
+1. **This file (`SKILL.md`)** — the decision layer. Steps 1–9 below are in workflow order;
+   start at the step matching your task and follow its links.
+2. **[reference.md](reference.md)** — the command layer. Exact curl/API payloads per step.
+3. **[troubleshooting.md](troubleshooting.md)** — the diagnosis layer. Got an error? Grep the
+   "Failure signature → cause" table for the literal error text before diagnosing from scratch.
+
+**This is a LIVE skill.** If you hit a situation these files don't cover — a new failure
+signature, a changed API shape, a missing workflow step — you MUST write it back before
+ending the session: new error → `troubleshooting.md`; new/changed command → `reference.md`;
+new workflow stage or platform behavior → the relevant Step here (keep this file compact,
+push detail into the sub-docs and link it). Never write credentials into any of these files.
+
 ## Session variables & credentials
 
 Never hardcode tokens, account IDs, or any credential value in this skill, in `reference.md`,

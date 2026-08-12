@@ -6,6 +6,10 @@ Auto-generated index of all shared rules, skills, and agents.
 
 ## Rules
 
+### ia-developer-rules
+
+- **ia-dev-workflow-usage** -- Mandatory use and live maintenance of the ia-dev-workflow skill for issue reproduction and epic verification
+- **ia-skill-navigation** -- How to navigate the ia-dev-workflow skill to find exactly what you need
 ### safety
 
 - **no-placeholder** -- Never leave incomplete code with TODO comments or placeholder implementations
